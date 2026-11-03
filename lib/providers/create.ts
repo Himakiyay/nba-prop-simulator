@@ -102,7 +102,7 @@ export function createProviders(mode: AppMode): ProviderSet {
       : groqKey
         ? createOpenAIModel({
             apiKey: groqKey,
-            model: process.env.GROQ_MODEL?.trim() || "llama-3.3-70b-versatile",
+            model: process.env.GROQ_MODEL?.trim() || "openai/gpt-oss-20b",
             baseUrl: "https://api.groq.com/openai/v1",
             name: "groq",
           })
