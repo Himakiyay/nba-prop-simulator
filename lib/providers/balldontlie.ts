@@ -202,6 +202,10 @@ export function createBallDontLieProviders(input: {
             start_date: startDate,
           });
           if (!result.ok) {
+            if (result.message.includes("401")) {
+              warnings.push("BallDontLie's free tier does not include game logs.");
+              break;
+            }
             warnings.push(result.message);
             if (result.message.includes("429")) rateLimited = true;
             continue;
@@ -285,6 +289,10 @@ export function createBallDontLieProviders(input: {
             per_page: "5",
           });
           if (!result.ok) {
+            if (result.message.includes("401")) {
+              warnings.push("BallDontLie's free tier does not include the injury list.");
+              break;
+            }
             warnings.push(result.message);
             if (result.message.includes("429")) rateLimited = true;
             continue;

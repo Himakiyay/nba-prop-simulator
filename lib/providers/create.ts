@@ -1,10 +1,11 @@
 import type { AppMode } from "@/lib/domain";
 import { createBallDontLieProviders } from "@/lib/providers/balldontlie";
+import { createEspnProviders } from "@/lib/providers/espn";
 import { createDemoProviders } from "@/lib/providers/demo";
 import { createOddsApiProvider } from "@/lib/providers/odds-api";
 import { createOpenAIModel } from "@/lib/providers/openai";
 import type { AvailabilityProvider, LanguageModel, OddsProvider, ProviderSet, StatsProvider } from "@/lib/providers/types";
-import { unavailable } from "@/lib/result";
+import { okResult, unavailable } from "@/lib/result";
 
 function positiveInt(name: string, fallback: number): number {
   const value = Number(process.env[name]);
@@ -70,21 +71,55 @@ export function createProviders(mode: AppMode): ProviderSet {
         },
       };
 
-  const missingStats =
-    "BALLDONTLIE_API_KEY is not set. Live game logs are unavailable, and demo logs are not substituted.";
-  const missingAvailability =
-    "BALLDONTLIE_API_KEY is not set. Live availability is unavailable, and demo injury notes are not substituted.";
   const ball = statsKey
     ? createBallDontLieProviders({ apiKey: statsKey, cacheTtlMs: limits.statsCacheSeconds * 1000 })
     : null;
-  const stats: StatsProvider = ball?.stats ?? {
-    async getLogs() {
-      return unavailable("balldontlie", missingStats);
+  const espn = createEspnProviders({ cacheTtlMs: limits.statsCacheSeconds * 1000 });
+  const stats: StatsProvider = {
+    async getLogs(request) {
+      if (!ball) return espn.stats.getLogs(request);
+      const primary = await ball.stats.getLogs(request);
+      if (primary.status === "unavailable") return espn.stats.getLogs(request);
+      const blocked = primary.warnings.some((warning) => warning.includes("does not include game logs"));
+      const hasLogs = Object.values(primary.data).some((row) => row.logs.length > 0);
+      if (hasLogs && !blocked) return primary;
+      const fallback = await espn.stats.getLogs(request);
+      if (fallback.status === "unavailable") return primary;
+      return okResult({
+        data: fallback.data,
+        fetchedAt: fallback.fetchedAt,
+        sourceUpdatedAt: fallback.sourceUpdatedAt,
+        source: fallback.source,
+        fictional: false,
+        warnings: [
+          blocked
+            ? "BallDontLie's free tier does not include game logs. Recent logs are from ESPN."
+            : "BallDontLie returned no game logs. Recent logs are from ESPN.",
+          ...fallback.warnings,
+        ],
+      });
     },
   };
-  const availability: AvailabilityProvider = ball?.availability ?? {
-    async getAvailability() {
-      return unavailable("balldontlie", missingAvailability);
+  const availability: AvailabilityProvider = {
+    async getAvailability(request) {
+      if (!ball) return espn.availability.getAvailability(request);
+      const primary = await ball.availability.getAvailability(request);
+      if (primary.status === "unavailable") return espn.availability.getAvailability(request);
+      const blocked = primary.warnings.some((warning) => warning.includes("does not include the injury list"));
+      if (!blocked) return primary;
+      const fallback = await espn.availability.getAvailability(request);
+      if (fallback.status === "unavailable") return primary;
+      return okResult({
+        data: fallback.data,
+        fetchedAt: fallback.fetchedAt,
+        sourceUpdatedAt: fallback.sourceUpdatedAt,
+        source: fallback.source,
+        fictional: false,
+        warnings: [
+          "BallDontLie's free tier does not include the injury list. Availability is from ESPN.",
+          ...fallback.warnings,
+        ],
+      });
     },
   };
 

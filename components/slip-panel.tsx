@@ -9,7 +9,8 @@ import {
   type OddsFormat,
   type PersistedState,
 } from "@/lib/domain";
-import { dependencyNotes, quoteSlip, type SlipQuote } from "@/lib/payout";
+import { dependencyNotes, formatPercent, quoteSlip, type SlipQuote } from "@/lib/payout";
+import { recentLogLabels } from "@/lib/stats";
 import { activeSlip, addSlip, removeSlip, setOddsFormat, withActiveSlip } from "@/lib/state";
 import { removeSelection, selectStoredAlternate, setStake } from "@/lib/slip";
 
@@ -84,7 +85,7 @@ export function SlipPanel({
 
       {slip.selections.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-primary/30 p-4 text-sm text-muted-foreground">
-          Empty slate. Use Get today’s slate, or tap a green price on a game.
+          Empty slate. Use Get today’s slate, or tap a price on a game.
         </p>
       ) : (
         <ul className="space-y-3">
@@ -103,9 +104,14 @@ export function SlipPanel({
                   <p className="text-sm text-primary">
                     {state.oddsFormat === "american"
                       ? formatAmerican(selection.oddsAmerican)
-                      : formatDecimal(selection.oddsDecimal)}{" "}
+                      : formatDecimal(selection.oddsDecimal)}
+                    {(() => {
+                      const implied = quote.legs.find((leg) => leg.selectionId === selection.id)?.impliedProbability;
+                      return implied == null ? "" : ` · ${formatPercent(implied)} implied`;
+                    })()}{" "}
                     · {selection.bookmakerTitle}
                   </p>
+                  <RecentLine selection={selection} />
                   {selection.fictional ? (
                     <p className="text-xs text-amber-200">Fictional quote</p>
                   ) : null}
@@ -206,6 +212,16 @@ export function SlipPanel({
   );
 }
 
+function RecentLine({
+  selection,
+}: {
+  selection: { marketKey: string; logs: Parameters<typeof recentLogLabels>[0] };
+}) {
+  const recent = recentLogLabels(selection.logs, selection.marketKey);
+  if (recent.length === 0) return <p className="mt-1 text-xs text-muted-foreground">Game log unavailable</p>;
+  return <p className="mt-1 text-xs text-muted-foreground">Game log {recent.join(" · ")}</p>;
+}
+
 function CombinedQuote({ quote, format }: { quote: SlipQuote; format: OddsFormat }) {
   const combined = quote.illustrativeIndependent;
   if (quote.legs.length === 1) {
@@ -216,6 +232,7 @@ function CombinedQuote({ quote, format }: { quote: SlipQuote; format: OddsFormat
         <p className="text-3xl font-bold text-primary">
           {format === "american" ? formatAmerican(leg.oddsAmerican) : formatDecimal(leg.oddsDecimal)}
         </p>
+        <p className="mt-1 text-lg font-semibold">{formatPercent(leg.impliedProbability)} implied</p>
         <p className="mt-1 text-sm">
           {formatMoney(quote.stake)} returns {formatMoney(leg.totalReturn)} · profit {formatMoney(leg.netProfit)}
         </p>
@@ -225,7 +242,7 @@ function CombinedQuote({ quote, format }: { quote: SlipQuote; format: OddsFormat
   if (quote.legs.length < 2) return null;
   if (!combined) {
     return (
-      <div className="rounded-2xl border border-sky-400/30 bg-sky-500/10 p-4 text-sm">
+      <div className="rounded-2xl border border-primary/30 bg-primary/10 p-4 text-sm">
         <p className="font-semibold">Combined sportsbook quote unavailable</p>
         <p className="mt-1 text-muted-foreground">
           Two or more picks share a game, so these prices are not multiplied into one payout.
@@ -238,14 +255,15 @@ function CombinedQuote({ quote, format }: { quote: SlipQuote; format: OddsFormat
       ? combined.decimal.toFixed(2)
       : formatAmerican(combined.american);
   return (
-    <div className="rounded-2xl bg-primary/15 p-4">
-      <p className="text-xs font-semibold tracking-[0.14em] text-primary uppercase">Combined odds</p>
-      <p className="text-4xl font-bold tracking-tight text-primary">{price}</p>
-      <p className="mt-1 text-sm">
-        {formatMoney(quote.stake)} returns {formatMoney(combined.totalReturn)} · profit {formatMoney(combined.netProfit)}
-      </p>
+      <div className="rounded-2xl border border-primary/40 bg-black/50 p-4">
+        <p className="text-xs font-semibold tracking-[0.14em] text-primary uppercase">Combined payout</p>
+        <p className="text-4xl font-bold tracking-tight text-primary">{price}</p>
+        <p className="mt-1 text-lg font-semibold">{formatPercent(combined.impliedProbability)} price-implied chance</p>
+        <p className="mt-1 text-sm">
+          {formatMoney(quote.stake)} returns {formatMoney(combined.totalReturn)} · profit {formatMoney(combined.netProfit)}
+        </p>
       <p className="mt-2 text-xs text-muted-foreground">
-        Illustrative if these prices were independent. Not a sportsbook parlay price.
+        That percent is what these prices imply if every leg is independent. It is not a prediction, and it is not a sportsbook parlay price.
       </p>
     </div>
   );

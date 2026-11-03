@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { intentSchema } from "@/lib/schema";
 import { parseIntent } from "@/lib/parse";
-import { narrativeAllowed } from "@/lib/narrate";
+import { narrativeAllowed, summaryMatchesRecords } from "@/lib/narrate";
 import { createSlip } from "@/lib/slip";
 import { createDemoProviders } from "@/lib/providers/demo";
 import { handleTurn } from "@/lib/handle-turn";
@@ -95,5 +95,11 @@ describe("structured action validation", () => {
   it("discards guarantee language", () => {
     expect(narrativeAllowed("This is a guaranteed lock.")).toBe(false);
     expect(narrativeAllowed("The historical rate is not a probability.")).toBe(true);
+  });
+
+  it("rejects a hit rate that is not in the game log", () => {
+    const record = { hits: 2, decisive: 10, sampleSize: 10 };
+    expect(summaryMatchesRecords("2 of 10 decisive games cleared the line.", [record])).toBe(true);
+    expect(summaryMatchesRecords("10 decisive hits out of 10 samples.", [record])).toBe(false);
   });
 });

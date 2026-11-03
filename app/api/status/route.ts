@@ -17,7 +17,7 @@ export async function GET() {
     notes: [
       "Request throttling is per server instance, not a global quota.",
       "Demo fixtures are never substituted into a live response.",
-      "BallDontLie is the live stats and injury source when BALLDONTLIE_API_KEY is set. The Odds API is the live odds source.",
+      "Recent game logs and the injury report come from ESPN's public NBA JSON. BallDontLie supplies them only on a plan that includes those endpoints. The Odds API is the live odds source.",
     ],
   });
 }

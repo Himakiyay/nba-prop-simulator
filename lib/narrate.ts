@@ -13,6 +13,20 @@ export function narrativeAllowed(text: string): boolean {
   return !BANNED.test(text);
 }
 
+export function summaryMatchesRecords(
+  summary: string,
+  records: { hits: number; decisive: number; sampleSize: number }[],
+): boolean {
+  const pairs = [...summary.matchAll(/(\d+)\s+(?:[a-z]+\s+){0,4}(?:out of|of)\s+(\d+)/gi)];
+  return pairs.every((match) => {
+    const hits = Number(match[1]);
+    const sample = Number(match[2]);
+    return records.some(
+      (record) => hits === record.hits && (sample === record.decisive || sample === record.sampleSize),
+    );
+  });
+}
+
 export function narrateAnalyze(
   card: ResearchCard,
   assumedSide: boolean,

@@ -3,6 +3,7 @@ import type { SlipSelection } from "@/lib/domain";
 import {
   americanToDecimal,
   decimalToAmerican,
+  impliedProbability,
   quoteSelection,
   quoteSlip,
 } from "@/lib/payout";
@@ -70,6 +71,8 @@ describe("payout math", () => {
     });
     expect(quote.combinedSportsbookQuote).toBe("unavailable");
     expect(quote.illustrativeIndependent).not.toBeNull();
+    expect(impliedProbability(-110)).toBeCloseTo(110 / 210, 6);
+    expect(quote.illustrativeIndependent?.impliedProbability).toBeCloseTo((110 / 210) ** 2, 6);
     expect(quote.illustrativeIndependent?.netProfit).toBeCloseTo(
       (quote.illustrativeIndependent?.totalReturn ?? 0) - 10,
       2,

@@ -304,14 +304,6 @@ export function suggestFromCards(cards: ResearchCard[], count: number): {
     if (chosen.some((existing) => existing.offer.playerId === card.offer.playerId)) continue;
     chosen.push(card);
   }
-  if (!usedPostedLines) {
-    for (const card of pool) {
-      if (chosen.length >= count) break;
-      if (conflicts(card)) continue;
-      if (chosen.some((existing) => existing.offer.playerId === card.offer.playerId)) continue;
-      chosen.push(card);
-    }
-  }
 
   const limitations: string[] = [];
   if (usedPostedLines && chosen.length > 0) {

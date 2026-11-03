@@ -17,11 +17,24 @@ export function decimalToAmerican(decimal: number): number | null {
   return Math.round(-100 / (decimal - 1));
 }
 
+export function impliedProbability(american: number): number | null {
+  const decimal = americanToDecimal(american);
+  if (decimal == null) return null;
+  const probability = 1 / decimal;
+  if (!Number.isFinite(probability) || probability <= 0 || probability >= 1) return null;
+  return probability;
+}
+
+export function formatPercent(probability: number): string {
+  return `${(probability * 100).toFixed(1)}%`;
+}
+
 export interface LegQuote {
   selectionId: string;
   label: string;
   oddsAmerican: number;
   oddsDecimal: number;
+  impliedProbability: number;
   stake: number;
   totalReturn: number;
   netProfit: number;
@@ -37,6 +50,7 @@ export interface SlipQuote {
     label: string;
     decimal: number;
     american: number | null;
+    impliedProbability: number;
     totalReturn: number;
     netProfit: number;
   } | null;
@@ -48,13 +62,15 @@ export function quoteSelection(
   stake: number,
 ): LegQuote | null {
   const decimal = americanToDecimal(selection.oddsAmerican);
-  if (decimal == null || !Number.isFinite(stake) || stake < 0) return null;
+  const probability = impliedProbability(selection.oddsAmerican);
+  if (decimal == null || probability == null || !Number.isFinite(stake) || stake < 0) return null;
   const totalReturn = roundMoney(stake * decimal);
   return {
     selectionId: selection.id,
     label: `${selection.playerName} ${selection.side} ${selection.line} ${selection.marketLabel}`,
     oddsAmerican: selection.oddsAmerican,
     oddsDecimal: decimal,
+    impliedProbability: probability,
     stake: roundMoney(stake),
     totalReturn,
     netProfit: roundMoney(totalReturn - stake),
@@ -94,12 +110,14 @@ export function quoteSlip(slip: Pick<Slip, "stake" | "selections">): SlipQuote {
   let illustrativeIndependent: SlipQuote["illustrativeIndependent"] = null;
   if (legs.length >= 2 && !sharesGame && invalidLegs.length === 0) {
     const decimal = legs.reduce((product, leg) => product * leg.oddsDecimal, 1);
+    const probability = legs.reduce((product, leg) => product * leg.impliedProbability, 1);
     const totalReturn = roundMoney(stake * decimal);
     illustrativeIndependent = {
       label:
-        "Illustrative combined payout assuming independent prices. Not a sportsbook parlay quote and not a Pick'em multiplier.",
+        "Combined price and the probability those prices imply if the legs are independent. Not a prediction and not a sportsbook parlay quote.",
       decimal,
       american: decimalToAmerican(decimal),
+      impliedProbability: probability,
       totalReturn,
       netProfit: roundMoney(totalReturn - stake),
     };

@@ -24,6 +24,7 @@ import {
   narrateSuggest,
   narrateUncertainty,
   narrativeAllowed,
+  summaryMatchesRecords,
 } from "@/lib/narrate";
 import type { ProviderSet } from "@/lib/providers/types";
 import {
@@ -1025,6 +1026,15 @@ async function maybeNarrate(
     warnings.push(
       "The language-model draft was discarded because it added a claim the evidence rules do not allow.",
     );
+    return { narrative: template, narrator: "template" };
+  }
+  if (
+    !summaryMatchesRecords(
+      narrated.data.summary,
+      cards.map((card) => card.hitRate),
+    )
+  ) {
+    warnings.push("The language-model draft cited a hit rate that was not in the game log. Showing the calculated summary instead.");
     return { narrative: template, narrator: "template" };
   }
   return { narrative: narrated.data.summary, narrator: "language-model" };

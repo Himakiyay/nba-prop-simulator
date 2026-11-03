@@ -6,6 +6,7 @@ import {
   marketLabel,
   type ResearchCard,
 } from "@/lib/domain";
+import { recentLogLabels } from "@/lib/stats";
 
 export function ResearchCardView({
   card,
@@ -16,6 +17,7 @@ export function ResearchCardView({
 }) {
   const record =
     card.hitRate.decisive > 0 ? `${card.hitRate.hits} of last ${card.hitRate.decisive}` : null;
+  const recent = recentLogLabels(card.logs, card.offer.marketKey);
 
   return (
     <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-card px-4 py-3">
@@ -29,6 +31,9 @@ export function ResearchCardView({
           {record ? ` · ${record}` : ""}
           {" · "}
           {card.offer.bookmakerTitle}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {recent.length > 0 ? `Game log ${recent.join(" · ")}` : "Game log unavailable"}
         </p>
       </div>
       {onAdd ? (

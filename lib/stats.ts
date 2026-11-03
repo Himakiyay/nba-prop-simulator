@@ -25,6 +25,18 @@ export function statKeysForMarket(marketKey: string): StatKey[] {
   return FAMILY_STATS[marketFamily(marketKey)] ?? [];
 }
 
+export function recentLogLabels(logs: GameLog[], marketKey: string, limit = 5): string[] {
+  const labels: string[] = [];
+  for (const log of logs) {
+    const value = statFromLog(marketKey, log.stats);
+    if (value == null) continue;
+    const opponent = log.opponentName.split(" ").filter(Boolean).at(-1) ?? "Opp";
+    labels.push(`${log.date.slice(5)} ${opponent} ${value}`);
+    if (labels.length >= limit) break;
+  }
+  return labels;
+}
+
 export function computeHitRate(
   logs: GameLog[],
   marketKey: string,

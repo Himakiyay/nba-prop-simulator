@@ -1,11 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   eventLabel,
   formatAmerican,
   formatTipoff,
   marketLabel,
+  type AvailabilityNote,
+  type GameLog,
   type Offer,
   type PersistedState,
   type SportEvent,
@@ -50,31 +53,62 @@ export function GameBoard({
   const priced = preferBook(offers, null);
   const bookTitle = priced[0]?.bookmakerTitle;
   const rows = groupRows(priced.filter((offer) => offer.marketKey === market && !offer.alternate));
+  const [pendingId, setPendingId] = useState<string | null>(null);
 
-  function addOffer(offer: Offer) {
-    if (!event) return;
+  async function addOffer(offer: Offer) {
+    if (!event || pendingId) return;
+    setPendingId(offer.id);
+    let logs: GameLog[] = [];
+    let availability: AvailabilityNote | null = null;
+    let availabilityState: "unavailable" | "not_listed" | "present" = "unavailable";
+    let teamName = offer.teamName;
+    try {
+      const response = await fetch(`/api/form?name=${encodeURIComponent(offer.playerName)}`);
+      if (response.ok) {
+        const body = (await response.json()) as {
+          logs?: GameLog[];
+          teamName?: string | null;
+          availability?: AvailabilityNote | null;
+          availabilityKnown?: boolean;
+        };
+        logs = body.logs ?? [];
+        teamName = body.teamName ?? teamName;
+        if (body.availabilityKnown) {
+          availability = body.availability ?? null;
+          availabilityState = availability ? "present" : "not_listed";
+        }
+      }
+    } catch {
+      logs = [];
+    }
     const card = buildResearchCard({
       offer,
       event,
-      logs: [],
-      availability: null,
-      availabilityState: "unavailable",
-      statsSource: null,
-      availabilitySource: null,
-      teamName: offer.teamName,
+      logs,
+      availability,
+      availabilityState,
+      statsSource: logs.length
+        ? { source: "espn", fetchedAt: new Date().toISOString(), sourceUpdatedAt: null, stale: false, fictional: false }
+        : null,
+      availabilitySource: availability
+        ? { source: "espn", fetchedAt: availability.fetchedAt, sourceUpdatedAt: availability.sourceUpdatedAt, stale: false, fictional: false }
+        : null,
+      teamName,
     });
     const slip = activeSlip(state);
     const edit = addSelection(slip, card, alternatesFor(offer, priced), new Date().toISOString());
     if (!edit.ok) {
       onError(edit.reason);
+      setPendingId(null);
       return;
     }
     const next = withActiveSlip(state, edit.slip);
     onChange(edit.snapshot ? { ...next, snapshots: [...next.snapshots, edit.snapshot] } : next);
+    setPendingId(null);
   }
 
   return (
-    <section className="rounded-3xl border border-white/10 bg-card/80 p-3 shadow-[0_0_40px_oklch(0.7_0.2_145/0.08)]">
+    <section className="rounded-3xl border border-primary/30 bg-black/45 p-3 shadow-[0_16px_50px_oklch(0_0_0/0.45)]">
       <div className="flex items-end justify-between gap-3 px-1">
         <div>
           <p className="text-xs font-semibold tracking-[0.16em] text-primary uppercase">Upcoming</p>
@@ -118,7 +152,7 @@ export function GameBoard({
             type="button"
             onClick={() => onSelectMarket(item.key)}
             className={`rounded-full px-3 py-1 text-xs font-semibold ${
-              market === item.key ? "bg-sky-500 text-white" : "bg-white/5 text-muted-foreground"
+              market === item.key ? "bg-primary text-primary-foreground" : "bg-white/5 text-muted-foreground"
             }`}
           >
             {item.label}
@@ -145,8 +179,8 @@ export function GameBoard({
                 </p>
               </div>
               <div className="flex shrink-0 gap-2">
-                <OddsButton label="O" offer={row.over} onAdd={addOffer} />
-                <OddsButton label="U" offer={row.under} onAdd={addOffer} />
+                <OddsButton label="O" offer={row.over} pending={pendingId === row.over?.id} onAdd={addOffer} />
+                <OddsButton label="U" offer={row.under} pending={pendingId === row.under?.id} onAdd={addOffer} />
               </div>
             </li>
           );
@@ -164,10 +198,12 @@ export function GameBoard({
 function OddsButton({
   label,
   offer,
+  pending,
   onAdd,
 }: {
   label: string;
   offer?: Offer;
+  pending?: boolean;
   onAdd: (offer: Offer) => void;
 }) {
   if (!offer) {
@@ -178,6 +214,7 @@ function OddsButton({
   return (
     <Button
       type="button"
+      disabled={pending}
       className="h-12 w-16 flex-col gap-0 rounded-xl bg-primary px-0 text-primary-foreground hover:bg-primary/90"
       onClick={() => onAdd(offer)}
     >

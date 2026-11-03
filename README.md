@@ -29,7 +29,7 @@ npm run build
 - Editable paper slips: add, remove, replace, stake, and alternate lines that were actually supplied.
 - Several slips saved in this browser via a small storage interface. Local saves do not follow you to another browser.
 - Payout math for American and decimal odds, with stake, total return, and net profit kept separate.
-- An illustrative combined payout only when every selection is in a different game. Same-game combinations do not multiply prices into a sportsbook quote. The desk shows "Combined sportsbook quote unavailable" when a book parlay price was not retrieved. Pick'em rules are not used.
+- An illustrative combined payout and price-implied chance only when every selection is in a different game. Independent leg decimals multiply for the return, and each leg's implied probability (1 divided by its decimal price) multiplies for the combined chance. That chance is what the prices imply, not a prediction. Same-game combinations do not multiply prices into a sportsbook quote. The desk shows "Combined sportsbook quote unavailable" when a book parlay price was not retrieved. Pick'em rules are not used.
 - Research cards with source, fetch time, source update time, logs, minutes, hit rate, sample size, availability, and supporting, opposing, and missing evidence.
 - Suggestions that return fewer picks when the evidence bar is missed. Out and doubtful players, short samples, and low minutes are skipped.
 - Same-game selections are flagged. Correlation is not quantified.
@@ -40,8 +40,8 @@ npm run build
 | Piece | Role |
 | --- | --- |
 | Odds provider | Demo fixtures, or The Odds API v4 |
-| Stats provider | Demo logs, or BallDontLie `/nba/v1/stats` |
-| Availability provider | Demo notes, or BallDontLie `/nba/v1/player_injuries` |
+| Stats provider | Demo logs, BallDontLie `/nba/v1/stats` when the plan includes it, otherwise ESPN game logs |
+| Availability provider | Demo notes, BallDontLie injuries when the plan includes them, otherwise the ESPN injury report |
 | Research | Hit rates, minutes, and the baseline heuristic, all in code |
 | Language model | Groq (free tier) or OpenAI for open-ended phrasing. Demo uses a command parser and a template |
 | Slip and payout | Validated edits and price math |
@@ -68,7 +68,7 @@ An automatic suggestion prefers props with at least 5 decisive games, average mi
 
 - Demo fixtures are fictional players, quotes, logs, and injury notes on a slate dated the evening of November 2, 2026 PT. Team names are labels only.
 - Live odds need `THE_ODDS_API_KEY`. Player props are billed per event and market. Caching is in memory for `ODDS_CACHE_TTL_SECONDS`. A failed refresh can show the last successful payload only when it is marked stale.
-- Live logs and injuries need `BALLDONTLIE_API_KEY`. The client follows the published OpenAPI: `https://api.balldontlie.io/nba/v1/...` with the key in the `Authorization` header. No opponent-adjusted matchup model is included, and none is invented.
+- Live player and team lists use BallDontLie. The free tier does not include game logs or the injury list, so those 401s are a plan limit, not a bad key. When that happens, recent game logs and the injury report come from ESPN's public NBA JSON. ALL-STAR on BallDontLie is the paid tier that includes their own stats and injuries. No opponent-adjusted matchup model is included, and none is invented.
 - The injury endpoint has no documented update timestamp, so `sourceUpdatedAt` stays null. A player missing from a successful injury response is "not listed", which is not treated as confirmation they will play.
 - Yes/no markets such as double-doubles are not priced. Combined parlay prices are not requested, because The Odds API does not return a quote for an arbitrary same-game or cross-game player-prop parlay in the endpoints this app uses.
 - The language model is optional. A free key is available from [Groq](https://console.groq.com): create an account, open API Keys, and put the key in `.env.local` as `GROQ_API_KEY`. Restart the dev server. `OPENAI_API_KEY` is the paid alternative and is used when both keys are present. If neither key is set, or the model call fails, the command parser still handles player names and slate requests. Template copy is used when a model note fails validation or uses banned claim language.

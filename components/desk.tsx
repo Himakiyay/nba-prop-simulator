@@ -233,7 +233,7 @@ export function Desk() {
 
   return (
     <main className="flex h-dvh flex-col">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-primary/40 bg-black/50 px-4 py-3">
         <div>
           <p className="text-2xl leading-none font-bold tracking-tight">Baseline</p>
           <p className="text-xs tracking-[0.16em] text-primary uppercase">NBA slate</p>
@@ -317,7 +317,7 @@ export function Desk() {
             ) : null}
             {state.messages.length === 0 ? (
               <p className="px-1 text-sm text-muted-foreground">
-                Tap a green price to add it, or use Get today’s slate for a 4-pick set with combined payout.
+                Tap a price to add it, or use Get today’s slate for a 4-pick set with combined payout.
               </p>
             ) : null}
             {state.messages.map((message) => (
