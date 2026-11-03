@@ -221,10 +221,10 @@ export function createOddsApiProvider(input: {
               continue;
             }
             const fetchedAt = new Date().toISOString();
-            let built = offersFromEvent(parsed.data, fetchedAt);
+            const built = offersFromEvent(parsed.data, fetchedAt);
             let sourceUpdated = newestUpdate(parsed.data);
             const configuredRegions = input.regions.split(",").map((region) => region.trim());
-            if (built.offers.length === 0 && !configuredRegions.includes("us2")) {
+            if (uniquePlayers(built.offers) < 10 && !configuredRegions.includes("us2")) {
               const fallback = await getJson(`/sports/basketball_nba/events/${encodeURIComponent(eventId)}/odds`, {
                 regions: "us2",
                 markets: marketParam,
@@ -234,12 +234,19 @@ export function createOddsApiProvider(input: {
                 const fallbackParsed = eventOddsSchema.safeParse(fallback.body);
                 if (fallbackParsed.success) {
                   const fallbackBuilt = offersFromEvent(fallbackParsed.data, fetchedAt);
-                  if (fallbackBuilt.offers.length > 0) {
-                    built = fallbackBuilt;
-                    sourceUpdated = newestUpdate(fallbackParsed.data);
+                  if (uniquePlayers(fallbackBuilt.offers) > uniquePlayers(built.offers)) {
+                    const seen = new Set(built.offers.map((offer) => offer.id));
+                    for (const offer of fallbackBuilt.offers) {
+                      if (seen.has(offer.id)) continue;
+                      built.offers.push(offer);
+                      seen.add(offer.id);
+                    }
+                    sourceUpdated = newestUpdate(fallbackParsed.data) ?? sourceUpdated;
                     if (!notedRegionFallback) {
                       warnings.push(
-                        "No player props were listed for the configured US region. Used US2 books that had posted props.",
+                        built.offers.length === fallbackBuilt.offers.length
+                          ? "No player props were listed for the configured US region. Used US2 books that had posted props."
+                          : "US books had a short prop list. Added US2 books that posted more players.",
                       );
                       notedRegionFallback = true;
                     }
@@ -282,6 +289,10 @@ export function createOddsApiProvider(input: {
       });
     },
   };
+}
+
+function uniquePlayers(offers: Offer[]): number {
+  return new Set(offers.filter((offer) => !offer.alternate).map((offer) => offer.playerId)).size;
 }
 
 function newestUpdate(row: z.infer<typeof eventOddsSchema>): string | null {

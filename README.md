@@ -43,7 +43,7 @@ npm run build
 | Stats provider | Demo logs, or BallDontLie `/nba/v1/stats` |
 | Availability provider | Demo notes, or BallDontLie `/nba/v1/player_injuries` |
 | Research | Hit rates, minutes, and the baseline heuristic, all in code |
-| Language model | OpenAI structured intent and an optional note. Demo uses a command parser and a template |
+| Language model | Groq (free tier) or OpenAI for open-ended phrasing. Demo uses a command parser and a template |
 | Slip and payout | Validated edits and price math |
 | Persistence | `DeskStore`, with `localStorage` in the browser and an in-memory store for tests |
 
@@ -51,7 +51,7 @@ Stable ids are derived from event ids, bookmaker keys, market keys, player names
 
 The Odds API flow is the documented one: `GET /v4/sports/basketball_nba/events` (no quota cost) and `GET /v4/sports/basketball_nba/events/{eventId}/odds` for player markets. Alternate keys such as `player_points_alternate` are requested only when a line change or a single-prop lookup needs them. The desk does not assume those lines exist. It does not scrape DraftKings.
 
-Supported research markets are points, rebounds, assists, threes, blocks, steals, and a few combined counting stats. Automatic suggestions scan main-line overs for points, rebounds, and assists only, and only the first `SLATE_EVENT_LIMIT` events, so a live suggestion does not pull the whole board.
+Supported research markets are points, rebounds, assists, threes, blocks, steals, and a few combined counting stats. The games board lists every upcoming event in the window and, for the selected game, loads points, rebounds, assists, and threes. Automatic suggestions still scan main-line overs for points, rebounds, and assists across the first `SLATE_EVENT_LIMIT` events (default 8). The Odds API only returns props the books have posted, and US books often post player props close to tip. When the configured region is thin, the client also checks US2 books and keeps the longer list. A short list is a book-posting limit, not a cap of four players in the app.
 
 ## Baseline heuristic
 
@@ -62,7 +62,7 @@ Supported research markets are points, rebounds, assists, threes, blocks, steals
 - Availability, weight 0.15. Available 1.00, questionable 0.55, not listed 0.50, unknown 0.45, doubtful 0.25, out 0. A missing feed scores 0.
 - Sample size, weight 0.10. Decisive games divided by 8, capped at 1.
 
-An automatic suggestion also requires at least 5 decisive games, average minutes of at least 20, and a player who is not listed out or doubtful. Pushes are reported and removed from the hit-rate denominator. The score is not a win probability, an expected value, or a confidence percentage.
+An automatic suggestion prefers props with at least 5 decisive games, average minutes of at least 20, and a player who is not listed out or doubtful. If nobody clears that bar, the slate still fills from posted main overs spread across different games. Pushes are reported and removed from the hit-rate denominator. The score is not a win probability, an expected value, or a confidence percentage.
 
 ## Provider limits
 
@@ -71,7 +71,7 @@ An automatic suggestion also requires at least 5 decisive games, average minutes
 - Live logs and injuries need `BALLDONTLIE_API_KEY`. The client follows the published OpenAPI: `https://api.balldontlie.io/nba/v1/...` with the key in the `Authorization` header. No opponent-adjusted matchup model is included, and none is invented.
 - The injury endpoint has no documented update timestamp, so `sourceUpdatedAt` stays null. A player missing from a successful injury response is "not listed", which is not treated as confirmation they will play.
 - Yes/no markets such as double-doubles are not priced. Combined parlay prices are not requested, because The Odds API does not return a quote for an arbitrary same-game or cross-game player-prop parlay in the endpoints this app uses.
-- The language model is optional. If it is down, live mode keeps the live data providers and falls back to the command parser. Template copy is used when a model note fails validation or uses banned claim language.
+- The language model is optional. A free key is available from [Groq](https://console.groq.com): create an account, open API Keys, and put the key in `.env.local` as `GROQ_API_KEY`. Restart the dev server. `OPENAI_API_KEY` is the paid alternative and is used when both keys are present. If neither key is set, or the model call fails, the command parser still handles player names and slate requests. Template copy is used when a model note fails validation or uses banned claim language.
 - Chat throttling is a process-local window (`CHAT_REQUESTS_PER_MINUTE`). On Vercel each instance has its own window. It is not a durable global limit.
 - Conversation context sent to the model is the current question, a short slip summary, and the compact evidence for the cards being explained. Game-log tables are not sent as a database dump.
 

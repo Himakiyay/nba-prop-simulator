@@ -56,18 +56,18 @@ export function narrateSuggest(input: {
   limitations: string[];
 }): string {
   if (input.chosen.length === 0) {
-    return `No prop cleared the daily bar, so I did not fill a ${input.requested}-pick slate with weaker quotes. The cards below are the closest prices, with the missing evidence on each one. ${input.limitations.join(" ")}`;
+    return "No posted overs came back for the games in this window.";
   }
   const list = input.chosen
     .map(
-      (card, index) =>
-        `${index + 1}. ${card.offer.playerName} ${card.offer.side} ${card.offer.line} ${marketLabel(card.offer.marketKey).toLowerCase()} (${formatAmerican(card.offer.oddsAmerican)})`,
+      (card) =>
+        `${card.offer.playerName} ${card.offer.side} ${card.offer.line} ${marketLabel(card.offer.marketKey).toLowerCase()} (${formatAmerican(card.offer.oddsAmerican)})`,
     )
-    .join(" ");
+    .join(", ");
   const applied = input.applied
-    ? "They were added to the empty slate, and each quote was snapshotted."
-    : "The slate already had picks, so I left it unchanged. Say “replace the slate with this proposal” to swap it.";
-  return `Best supported slate for the games on the board: ${list} ${applied} This is the highest-ranked set that has enough logs, minutes, and availability. It is not a prediction, and it is not a sportsbook parlay price.`;
+    ? "Added to your slate."
+    : "Your slate already had picks, so it was left as-is. Say “replace the slate with this proposal” to swap it.";
+  return `${list}. ${applied}`;
 }
 
 export function narrateUncertainty(report: UncertaintyReport): string {

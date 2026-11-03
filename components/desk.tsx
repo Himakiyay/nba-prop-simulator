@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { GameBoard } from "@/components/game-board";
 import { ResearchCardView } from "@/components/research-card";
 import { SlipPanel } from "@/components/slip-panel";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +14,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { MESSAGE_CHAR_LIMIT, type PersistedState, type ResearchCard } from "@/lib/domain";
+import { MESSAGE_CHAR_LIMIT, type Offer, type PersistedState, type ResearchCard, type SportEvent } from "@/lib/domain";
 import { browserStore, readBrowserSnapshot, subscribeBrowserStore } from "@/lib/storage";
 import {
   activeSlip,
@@ -35,6 +36,12 @@ const STARTERS = [
   "Research Cade Cunningham's points for today",
   "Add Tyrese Maxey to the slate",
 ];
+
+interface BoardBody {
+  events: SportEvent[];
+  offers: Offer[];
+  error: string | null;
+}
 
 interface StatusBody {
   defaultMode: "demo" | "live";
@@ -69,6 +76,12 @@ export function Desk() {
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [events, setEvents] = useState<SportEvent[]>([]);
+  const [offers, setOffers] = useState<Offer[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [market, setMarket] = useState("player_points");
+  const [boardLoading, setBoardLoading] = useState(true);
+  const [boardError, setBoardError] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
   function commit(next: PersistedState) {
@@ -99,6 +112,52 @@ export function Desk() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/board")
+      .then((response) => response.json())
+      .then((body: BoardBody) => {
+        if (cancelled) return;
+        const nextEvents = body.events ?? [];
+        setEvents(nextEvents);
+        setBoardError(body.error);
+        setSelectedId(nextEvents[0]?.id ?? null);
+        if (nextEvents.length === 0) setBoardLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setBoardError("Upcoming games could not be loaded.");
+          setBoardLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    let cancelled = false;
+    fetch(`/api/board?eventId=${encodeURIComponent(selectedId)}`)
+      .then((response) => response.json())
+      .then((body: BoardBody) => {
+        if (cancelled) return;
+        if (body.events?.length) setEvents(body.events);
+        setOffers(body.offers ?? []);
+        setBoardError(body.error);
+        setBoardLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setBoardError("Prices for that game could not be loaded.");
+          setBoardLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId]);
 
   useEffect(() => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight });
@@ -145,6 +204,13 @@ export function Desk() {
     }
   }
 
+  function selectEvent(id: string) {
+    if (id === selectedId) return;
+    setBoardLoading(true);
+    setOffers([]);
+    setSelectedId(id);
+  }
+
   function addCard(card: ResearchCard) {
     if (!state) return;
     const slip = activeSlip(state);
@@ -166,16 +232,19 @@ export function Desk() {
   ].filter((item): item is string => Boolean(item));
 
   return (
-    <main className="flex h-dvh flex-col bg-[radial-gradient(circle_at_top_left,rgba(230,179,90,0.08),transparent_32rem)]">
-      <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+    <main className="flex h-dvh flex-col">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
         <div>
-          <p className="font-heading text-2xl leading-none">Baseline</p>
-          <p className="text-xs tracking-[0.16em] text-muted-foreground uppercase">
-            NBA research desk
-          </p>
+          <p className="text-2xl leading-none font-bold tracking-tight">Baseline</p>
+          <p className="text-xs tracking-[0.16em] text-primary uppercase">NBA slate</p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="secondary">Live NBA</Badge>
+          <Button size="sm" disabled={loading} onClick={() => send("Best slate for today")}>
+            {loading ? "Building slate…" : "Get today’s slate"}
+          </Button>
+          <Badge variant="secondary" className="hidden sm:inline-flex">
+            Live
+          </Badge>
           <Button
             size="sm"
             variant="outline"
@@ -206,25 +275,31 @@ export function Desk() {
       <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_23rem]">
         <section className="flex min-h-0 flex-col">
           <div ref={scroller} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
-            <div className="rounded-xl border border-border bg-card/50 p-4 text-sm leading-6">
-              <p>
-                Pick a button or type a player. Each card says whether the recent logs are enough
-                to compare, and you can add the ones you want onto one slate. Nothing here places
-                a bet. The chat and slate stay in this browser after a refresh. Clear chat removes the old messages and leaves the slate.
+            <GameBoard
+              events={events}
+              offers={offers}
+              selectedId={selectedId}
+              market={market}
+              loading={boardLoading}
+              error={boardError}
+              state={state}
+              onSelectEvent={selectEvent}
+              onSelectMarket={setMarket}
+              onChange={commit}
+              onError={setError}
+            />
+            {status && !status.languageModel ? (
+              <p className="px-1 text-xs leading-5 text-muted-foreground">
+                Buttons and player names work now. For open-ended chat, create a free key at console.groq.com, add GROQ_API_KEY to .env.local, and restart. An OpenAI key in OPENAI_API_KEY works too.
               </p>
-              <p className="mt-2 text-muted-foreground">
-                {status && !status.languageModel
-                  ? "The OpenAI key is empty, so free-form questions use the buttons and player names. Paste OPENAI_API_KEY into .env.local and restart to talk in your own words."
-                  : "The language model can rephrase a question. The prices and logs still come from the data feeds."}
-              </p>
-              {liveGaps.length > 0 ? (
-                <ul className="mt-2 text-amber-100">
-                  {liveGaps.map((gap) => (
-                    <li key={gap}>{gap}</li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
+            ) : null}
+            {liveGaps.length > 0 ? (
+              <ul className="px-1 text-xs text-amber-100">
+                {liveGaps.map((gap) => (
+                  <li key={gap}>{gap}</li>
+                ))}
+              </ul>
+            ) : null}
             {saved.error ? (
               <div className="rounded-lg bg-rose-950/50 p-3 text-sm text-rose-100">
                 <p>{saved.error}</p>
@@ -241,20 +316,9 @@ export function Desk() {
               </div>
             ) : null}
             {state.messages.length === 0 ? (
-              <div>
-                <p className="text-sm text-muted-foreground">Choose one</p>
-                <div className="mt-2 flex flex-col gap-2">
-                  {STARTERS.map((prompt) => (
-                    <button
-                      key={prompt}
-                      className="rounded-lg border border-border px-3 py-2 text-left text-sm hover:border-primary/50"
-                      onClick={() => send(prompt)}
-                    >
-                      {prompt}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <p className="px-1 text-sm text-muted-foreground">
+                Tap a green price to add it, or use Get today’s slate for a 4-pick set with combined payout.
+              </p>
             ) : null}
             {state.messages.map((message) => (
               <article
@@ -269,13 +333,13 @@ export function Desk() {
                 {message.warnings.filter((warning) => !warning.startsWith("Language model is not")).length > 0 ? (
                   <details className="text-xs text-amber-100">
                     <summary className="cursor-pointer">Feed notes</summary>
-                    {message.warnings
-                      .filter((warning) => !warning.startsWith("Language model is not"))
-                      .map((warning) => (
+                    {[...new Set(message.warnings.filter((warning) => !warning.startsWith("Language model is not")))].map(
+                      (warning) => (
                         <p key={warning} className="mt-1">
                           {warning}
                         </p>
-                      ))}
+                      ),
+                    )}
                   </details>
                 ) : null}
                 {message.uncertainty?.biggest ? (
@@ -300,7 +364,7 @@ export function Desk() {
             ))}
             {loading ? (
               <p className="text-sm text-muted-foreground" aria-live="polite">
-                Checking the slate and calculating from retrieved logs…
+                Building the slate from today’s posted prices…
               </p>
             ) : null}
             {error ? <p className="rounded-lg bg-rose-950/50 p-3 text-sm text-rose-100">{error}</p> : null}

@@ -36,6 +36,7 @@ export interface SlipQuote {
   illustrativeIndependent: {
     label: string;
     decimal: number;
+    american: number | null;
     totalReturn: number;
     netProfit: number;
   } | null;
@@ -98,6 +99,7 @@ export function quoteSlip(slip: Pick<Slip, "stake" | "selections">): SlipQuote {
       label:
         "Illustrative combined payout assuming independent prices. Not a sportsbook parlay quote and not a Pick'em multiplier.",
       decimal,
+      american: decimalToAmerican(decimal),
       totalReturn,
       netProfit: roundMoney(totalReturn - stake),
     };

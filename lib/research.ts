@@ -258,12 +258,20 @@ export function suggestFromCards(cards: ResearchCard[], count: number): {
   excluded: { playerName: string; marketLabel: string; reason: string }[];
   limitations: string[];
 } {
-  const ranked = [...cards].sort(
-    (a, b) =>
-      b.baseline.score - a.baseline.score ||
+  const anyQualified = cards.some((card) => card.baseline.qualified && card.offer.side === "over");
+  const ranked = [...cards].sort((a, b) => {
+    if (anyQualified) {
+      const score = b.baseline.score - a.baseline.score;
+      if (score) return score;
+    }
+    return (
+      marketRank(a.offer.marketKey) - marketRank(b.offer.marketKey) ||
+      Math.abs(a.offer.oddsAmerican + 110) - Math.abs(b.offer.oddsAmerican + 110) ||
+      b.offer.line - a.offer.line ||
       a.offer.playerName.localeCompare(b.offer.playerName) ||
-      a.offer.marketKey.localeCompare(b.offer.marketKey),
-  );
+      a.offer.marketKey.localeCompare(b.offer.marketKey)
+    );
+  });
   const excluded = ranked
     .filter((card) => !card.baseline.qualified)
     .map((card) => ({
@@ -271,7 +279,17 @@ export function suggestFromCards(cards: ResearchCard[], count: number): {
       marketLabel: card.hitRate.statLabel,
       reason: card.baseline.excludeReason ?? "Evidence was insufficient.",
     }));
-  const pool = ranked.filter((card) => card.baseline.qualified && card.offer.side === "over");
+  const qualifiedPool = ranked.filter((card) => card.baseline.qualified && card.offer.side === "over");
+  const usedPostedLines = qualifiedPool.length === 0;
+  const pool = usedPostedLines
+    ? ranked.filter(
+        (card) =>
+          card.offer.side === "over" &&
+          !card.offer.alternate &&
+          card.availability?.status !== "out" &&
+          card.availability?.status !== "doubtful",
+      )
+    : qualifiedPool;
   const chosen: ResearchCard[] = [];
   const conflicts = (card: ResearchCard) =>
     chosen.some(
@@ -286,15 +304,21 @@ export function suggestFromCards(cards: ResearchCard[], count: number): {
     if (chosen.some((existing) => existing.offer.playerId === card.offer.playerId)) continue;
     chosen.push(card);
   }
-  for (const card of pool) {
-    if (chosen.length >= count) break;
-    if (conflicts(card)) continue;
-    if (chosen.some((existing) => existing.offer.playerId === card.offer.playerId)) continue;
-    chosen.push(card);
+  if (!usedPostedLines) {
+    for (const card of pool) {
+      if (chosen.length >= count) break;
+      if (conflicts(card)) continue;
+      if (chosen.some((existing) => existing.offer.playerId === card.offer.playerId)) continue;
+      chosen.push(card);
+    }
   }
 
   const limitations: string[] = [];
-  if (chosen.length < count) {
+  if (usedPostedLines && chosen.length > 0) {
+    limitations.push(
+      "Recent logs were thin, so this slate spreads posted main overs across different games. It is not a stats ranking.",
+    );
+  } else if (chosen.length < count) {
     limitations.push(
       `Requested ${count} selections. ${chosen.length} cleared the evidence bar: at least ${MIN_DECISIVE_GAMES} decisive games, average minutes of at least ${MIN_AVERAGE_MINUTES}, and not listed out or doubtful.`,
     );
@@ -342,13 +366,27 @@ export function capCandidates(offers: Offer[], playerCap: number): Offer[] {
   return offers.filter((offer) => allowed.has(offer.playerId));
 }
 
+function marketRank(key: string): number {
+  const order = ["player_points", "player_rebounds", "player_assists", "player_threes"];
+  const index = order.indexOf(marketFamily(key));
+  return index === -1 ? order.length : index;
+}
+
+export function preferBookPerEvent(offers: Offer[], preferred: string | null): Offer[] {
+  const byEvent = new Map<string, Offer[]>();
+  for (const offer of offers) {
+    const group = byEvent.get(offer.eventId) ?? [];
+    group.push(offer);
+    byEvent.set(offer.eventId, group);
+  }
+  return [...byEvent.values()].flatMap((group) => preferBook(group, preferred));
+}
+
 export function preferBook(offers: Offer[], preferred: string | null): Offer[] {
   if (offers.length === 0) return [];
-  if (preferred && offers.some((offer) => offer.bookmakerKey === preferred)) {
-    return offers.filter((offer) => offer.bookmakerKey === preferred);
-  }
   const counts = new Map<string, number>();
   for (const offer of offers) {
+    if (offer.alternate) continue;
     counts.set(offer.bookmakerKey, (counts.get(offer.bookmakerKey) ?? 0) + 1);
   }
   let best = offers[0].bookmakerKey;
@@ -357,6 +395,12 @@ export function preferBook(offers: Offer[], preferred: string | null): Offer[] {
     if (count > bestCount) {
       best = key;
       bestCount = count;
+    }
+  }
+  if (preferred) {
+    const preferredCount = counts.get(preferred) ?? 0;
+    if (preferredCount > 0 && preferredCount >= Math.max(8, Math.floor(bestCount * 0.6))) {
+      return offers.filter((offer) => offer.bookmakerKey === preferred);
     }
   }
   return offers.filter((offer) => offer.bookmakerKey === best);

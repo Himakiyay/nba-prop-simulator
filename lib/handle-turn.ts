@@ -30,6 +30,7 @@ import {
   buildResearchCard,
   capCandidates,
   preferBook,
+  preferBookPerEvent,
   suggestFromCards,
 } from "@/lib/research";
 import type { DataResult } from "@/lib/result";
@@ -143,7 +144,7 @@ export async function handleTurn(input: TurnInput, providers: ProviderSet): Prom
   }
   if (board.unavailable) warnings.push(board.unavailable);
 
-  const offers = preferBook(board.pack.offers, providers.preferredBookmaker);
+  const offers = preferBookPerEvent(board.pack.offers, providers.preferredBookmaker);
   const events = new Map(board.pack.events.map((event) => [event.id, event]));
 
   if (intent.type === "suggest" || intent.type === "apply_proposal") {

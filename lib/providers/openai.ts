@@ -90,30 +90,48 @@ const INTENT_SCHEMA = {
   ],
 } as const;
 
-export function createOpenAIModel(input: { apiKey: string; model: string }): LanguageModel {
+export function createOpenAIModel(input: {
+  apiKey: string;
+  model: string;
+  baseUrl?: string;
+  name?: string;
+}): LanguageModel {
+  const baseUrl = (input.baseUrl ?? "https://api.openai.com/v1").replace(/\/$/, "");
+
+  async function post(schemaName: string, schema: object, system: string, user: string, mode: "schema" | "json") {
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      signal: AbortSignal.timeout(12000),
+      headers: {
+        Authorization: `Bearer ${input.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: input.model,
+        temperature: mode === "json" ? 0.2 : 0,
+        max_tokens: 700,
+        messages: [
+          {
+            role: "system",
+            content: mode === "json" ? `${system} Respond with one JSON object and no markdown.` : system,
+          },
+          { role: "user", content: user },
+        ],
+        response_format:
+          mode === "schema"
+            ? { type: "json_schema", json_schema: { name: schemaName, strict: true, schema } }
+            : { type: "json_object" },
+      }),
+    });
+    return response;
+  }
+
   async function complete(schemaName: string, schema: object, system: string, user: string) {
     try {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        signal: AbortSignal.timeout(12000),
-        headers: {
-          Authorization: `Bearer ${input.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: input.model,
-          temperature: 0,
-          max_tokens: 700,
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: user },
-          ],
-          response_format: {
-            type: "json_schema",
-            json_schema: { name: schemaName, strict: true, schema },
-          },
-        }),
-      });
+      let response = await post(schemaName, schema, system, user, "schema");
+      if (!response.ok && baseUrl.includes("groq.com")) {
+        response = await post(schemaName, schema, system, user, "json");
+      }
       if (!response.ok) {
         return { ok: false as const, message: `The language model returned HTTP ${response.status}.` };
       }
@@ -130,7 +148,7 @@ export function createOpenAIModel(input: { apiKey: string; model: string }): Lan
 
   return {
     configured: true,
-    name: input.model,
+    name: input.name ?? input.model,
     async classify({ message, slipSummary }) {
       const result = await complete(
         "research_intent",

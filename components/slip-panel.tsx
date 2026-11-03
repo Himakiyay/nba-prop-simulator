@@ -6,9 +6,10 @@ import {
   formatDecimal,
   formatMoney,
   formatTipoff,
+  type OddsFormat,
   type PersistedState,
 } from "@/lib/domain";
-import { dependencyNotes, quoteSlip } from "@/lib/payout";
+import { dependencyNotes, quoteSlip, type SlipQuote } from "@/lib/payout";
 import { activeSlip, addSlip, removeSlip, setOddsFormat, withActiveSlip } from "@/lib/state";
 import { removeSelection, selectStoredAlternate, setStake } from "@/lib/slip";
 
@@ -79,9 +80,11 @@ export function SlipPanel({
         </Button>
       </div>
 
+      <CombinedQuote quote={quote} format={state.oddsFormat} />
+
       {slip.selections.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
-          No selections yet. Ask for a slate suggestion or add a researched prop.
+        <p className="rounded-2xl border border-dashed border-primary/30 p-4 text-sm text-muted-foreground">
+          Empty slate. Use Get today’s slate, or tap a green price on a game.
         </p>
       ) : (
         <ul className="space-y-3">
@@ -166,32 +169,11 @@ export function SlipPanel({
         </p>
       ))}
 
-      <section className="rounded-lg border border-border p-3 text-sm">
-        <h3 className="font-medium">Payout math</h3>
-        <p className="mt-1 text-muted-foreground">Stake {formatMoney(quote.stake)}</p>
-        {quote.legs.map((leg) => (
-          <p key={leg.selectionId} className="mt-2">
-            {leg.label} alone: total return {formatMoney(leg.totalReturn)}, net profit{" "}
-            {formatMoney(leg.netProfit)}.
-          </p>
-        ))}
-        {quote.invalidLegs.map((leg) => (
-          <p key={leg.selectionId} className="mt-2 text-rose-200">
-            {leg.reason}
-          </p>
-        ))}
-        {quote.combinedSportsbookQuote === "unavailable" ? (
-          <p className="mt-3 font-medium">Combined sportsbook quote unavailable</p>
-        ) : null}
-        {quote.illustrativeIndependent ? (
-          <p className="mt-2 text-muted-foreground">
-            {quote.illustrativeIndependent.label} Total return{" "}
-            {formatMoney(quote.illustrativeIndependent.totalReturn)}, net profit{" "}
-            {formatMoney(quote.illustrativeIndependent.netProfit)}.
-          </p>
-        ) : null}
-        <p className="mt-3 text-xs text-muted-foreground">{quote.note}</p>
-      </section>
+      {quote.invalidLegs.map((leg) => (
+        <p key={leg.selectionId} className="text-sm text-rose-200">
+          {leg.reason}
+        </p>
+      ))}
 
       <section>
         <div className="flex items-center justify-between">
@@ -220,6 +202,51 @@ export function SlipPanel({
           ))}
         </ul>
       </section>
+    </div>
+  );
+}
+
+function CombinedQuote({ quote, format }: { quote: SlipQuote; format: OddsFormat }) {
+  const combined = quote.illustrativeIndependent;
+  if (quote.legs.length === 1) {
+    const leg = quote.legs[0];
+    return (
+      <div className="rounded-2xl bg-primary/15 p-4">
+        <p className="text-xs font-semibold tracking-[0.14em] text-primary uppercase">Single</p>
+        <p className="text-3xl font-bold text-primary">
+          {format === "american" ? formatAmerican(leg.oddsAmerican) : formatDecimal(leg.oddsDecimal)}
+        </p>
+        <p className="mt-1 text-sm">
+          {formatMoney(quote.stake)} returns {formatMoney(leg.totalReturn)} · profit {formatMoney(leg.netProfit)}
+        </p>
+      </div>
+    );
+  }
+  if (quote.legs.length < 2) return null;
+  if (!combined) {
+    return (
+      <div className="rounded-2xl border border-sky-400/30 bg-sky-500/10 p-4 text-sm">
+        <p className="font-semibold">Combined sportsbook quote unavailable</p>
+        <p className="mt-1 text-muted-foreground">
+          Two or more picks share a game, so these prices are not multiplied into one payout.
+        </p>
+      </div>
+    );
+  }
+  const price =
+    format === "decimal" || combined.american == null
+      ? combined.decimal.toFixed(2)
+      : formatAmerican(combined.american);
+  return (
+    <div className="rounded-2xl bg-primary/15 p-4">
+      <p className="text-xs font-semibold tracking-[0.14em] text-primary uppercase">Combined odds</p>
+      <p className="text-4xl font-bold tracking-tight text-primary">{price}</p>
+      <p className="mt-1 text-sm">
+        {formatMoney(quote.stake)} returns {formatMoney(combined.totalReturn)} · profit {formatMoney(combined.netProfit)}
+      </p>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Illustrative if these prices were independent. Not a sportsbook parlay price.
+      </p>
     </div>
   );
 }

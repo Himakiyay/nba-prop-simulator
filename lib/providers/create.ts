@@ -14,9 +14,9 @@ function positiveInt(name: string, fallback: number): number {
 
 export function readLimits() {
   return {
-    slateEventLimit: positiveInt("SLATE_EVENT_LIMIT", 4),
-    lookupEventLimit: positiveInt("LOOKUP_EVENT_LIMIT", 8),
-    candidatePlayerCap: positiveInt("CANDIDATE_PLAYER_CAP", 12),
+    slateEventLimit: positiveInt("SLATE_EVENT_LIMIT", 8),
+    lookupEventLimit: positiveInt("LOOKUP_EVENT_LIMIT", 12),
+    candidatePlayerCap: positiveInt("CANDIDATE_PLAYER_CAP", 18),
     chatPerMinute: positiveInt("CHAT_REQUESTS_PER_MINUTE", 20),
     oddsCacheSeconds: positiveInt("ODDS_CACHE_TTL_SECONDS", 60),
     statsCacheSeconds: positiveInt("STATS_CACHE_TTL_SECONDS", 600),
@@ -29,7 +29,7 @@ export function providerStatus() {
     odds: Boolean(process.env.THE_ODDS_API_KEY),
     stats: Boolean(process.env.BALLDONTLIE_API_KEY),
     availability: Boolean(process.env.BALLDONTLIE_API_KEY),
-    languageModel: Boolean(process.env.OPENAI_API_KEY),
+    languageModel: Boolean(process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY),
   };
 }
 
@@ -50,6 +50,7 @@ export function createProviders(mode: AppMode): ProviderSet {
   const oddsKey = process.env.THE_ODDS_API_KEY?.trim();
   const statsKey = process.env.BALLDONTLIE_API_KEY?.trim();
   const modelKey = process.env.OPENAI_API_KEY?.trim();
+  const groqKey = process.env.GROQ_API_KEY?.trim();
   const preferred = process.env.ODDS_BOOKMAKER_PREFERENCE?.trim() || "draftkings";
   const regions = process.env.ODDS_REGIONS?.trim() || "us";
 
@@ -95,10 +96,19 @@ export function createProviders(mode: AppMode): ProviderSet {
       ? createOpenAIModel({
           apiKey: modelKey,
           model: process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini",
+          baseUrl: "https://api.openai.com/v1",
+          name: "openai",
         })
-      : unavailableLanguage(
-          "OPENAI_API_KEY is not set. Open-ended phrasing is limited to the command parser.",
-        ),
+      : groqKey
+        ? createOpenAIModel({
+            apiKey: groqKey,
+            model: process.env.GROQ_MODEL?.trim() || "llama-3.3-70b-versatile",
+            baseUrl: "https://api.groq.com/openai/v1",
+            name: "groq",
+          })
+        : unavailableLanguage(
+            "No language-model key is set. Add GROQ_API_KEY (free tier at console.groq.com) or OPENAI_API_KEY. The command parser still handles player names and slate requests.",
+          ),
     preferredBookmaker: preferred,
   };
 }
