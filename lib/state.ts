@@ -47,6 +47,10 @@ export function createInitialState(now: string): PersistedState {
   };
 }
 
+export function clearMessages(state: PersistedState): PersistedState {
+  return { ...state, messages: [] };
+}
+
 export function activeSlip(state: PersistedState): Slip {
   return state.slips.find((slip) => slip.id === state.activeSlipId) ?? state.slips[0];
 }

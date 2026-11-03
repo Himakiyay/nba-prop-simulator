@@ -19,6 +19,7 @@ import {
   activeSlip,
   addSlip,
   applyTurn,
+  clearMessages,
   createInitialState,
   EMPTY_PERSISTED_STATE,
   parsePersisted,
@@ -175,6 +176,14 @@ export function Desk() {
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="secondary">Live NBA</Badge>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => commit(clearMessages(state))}
+            disabled={state.messages.length === 0}
+          >
+            Clear chat
+          </Button>
           <Link href="/history" className="hidden text-sm text-primary sm:inline">
             History
           </Link>
@@ -201,7 +210,7 @@ export function Desk() {
               <p>
                 Pick a button or type a player. Each card says whether the recent logs are enough
                 to compare, and you can add the ones you want onto one slate. Nothing here places
-                a bet.
+                a bet. The chat and slate stay in this browser after a refresh. Clear chat removes the old messages and leaves the slate.
               </p>
               <p className="mt-2 text-muted-foreground">
                 {status && !status.languageModel
