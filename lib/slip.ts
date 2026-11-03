@@ -118,6 +118,7 @@ export function snapshotFromSelection(
   evidence: EvidenceSummary,
   now: string,
   replacesSnapshotId: string | null,
+  stake: number,
 ): SelectionSnapshot {
   return {
     id: selection.snapshotId,
@@ -139,6 +140,7 @@ export function snapshotFromSelection(
     oddsAmerican: selection.oddsAmerican,
     oddsDecimal: selection.oddsDecimal,
     offerId: selection.offerId,
+    stake,
     evidence,
     bestSameLine: selection.bestSameLine ?? null,
     latestPrice: null,
@@ -195,7 +197,7 @@ export function addSelection(
   const snapshotId = createId("snap");
   const selection = selectionFromCard(card, alternates, snapshotId, createId("sel"));
   if (!selection) return { ok: false, reason: "The quoted American odds could not be priced." };
-  const snapshot = snapshotFromSelection(slip.id, selection, evidenceFromCard(card), now, null);
+  const snapshot = snapshotFromSelection(slip.id, selection, evidenceFromCard(card), now, null, slip.stake);
   return {
     ok: true,
     snapshot,
@@ -227,6 +229,7 @@ export function replaceSelection(
     evidenceFromCard(card),
     now,
     current.snapshotId,
+    slip.stake,
   );
   return {
     ok: true,

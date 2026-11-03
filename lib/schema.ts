@@ -216,9 +216,10 @@ const snapshotSchema = z.object({
   side: sideSchema,
   line: z.number(),
   bookmakerTitle: z.string(),
-  oddsAmerican: z.number(),
-  oddsDecimal: z.number(),
+    oddsAmerican: z.number(),
+    oddsDecimal: z.number(),
     offerId: z.string(),
+    stake: z.number().min(0).max(100000).default(10),
     bestSameLine: sameLinePriceSchema.nullable().default(null),
     latestPrice: latestPriceSchema.nullable().default(null),
     evidence: z.object({

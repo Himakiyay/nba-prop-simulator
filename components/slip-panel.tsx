@@ -11,6 +11,7 @@ import {
   type PersistedState,
 } from "@/lib/domain";
 import { bestPriceSentence, priceMoveSentence } from "@/lib/prices";
+import { encodeShare, slateFromSlip } from "@/lib/share";
 import { dependencyNotes, formatPercent, quoteSlip, type SlipQuote } from "@/lib/payout";
 import { refreshStoredPrices } from "@/lib/refresh-prices";
 import { recentLogLabels } from "@/lib/stats";
@@ -31,6 +32,19 @@ export function SlipPanel({
   const notes = dependencyNotes(slip.selections);
   const now = () => new Date().toISOString();
   const [checking, setChecking] = useState(false);
+  const [shareNote, setShareNote] = useState<string | null>(null);
+
+  async function shareSlate() {
+    const slate = slateFromSlip(slip);
+    if (!slate) return;
+    const url = `${window.location.origin}/share#${encodeShare(slate)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareNote("Link copied. Anyone with it can read this slate.");
+    } catch {
+      setShareNote(url);
+    }
+  }
 
   async function checkPrices() {
     setChecking(true);
@@ -62,6 +76,9 @@ export function SlipPanel({
         <div className="flex items-center justify-between gap-2">
           <h2 className="font-heading text-2xl">Your slate</h2>
           <div className="flex items-center gap-2">
+            <Button size="xs" variant="outline" disabled={slip.selections.length === 0} onClick={() => void shareSlate()}>
+              Share
+            </Button>
             <Button size="xs" variant="outline" disabled={checking || slip.selections.length === 0} onClick={() => void checkPrices()}>
               {checking ? "Checking…" : "Check prices"}
             </Button>
@@ -69,9 +86,9 @@ export function SlipPanel({
           </div>
         </div>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          Saved in this browser only. Clearing site data or switching browsers drops the slips.
-          This is not a sportsbook ticket.
+          Place the bet at your sportsbook. This slate keeps the price, the log, and the payout. Share copies a link. Grade the result in History to see if the money came back.
         </p>
+        {shareNote ? <p className="mt-2 text-xs text-primary">{shareNote}</p> : null}
       </div>
 
       <label className="block text-sm">

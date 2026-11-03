@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, useSyncExternalStore } from "react";
 import { calibrateSnapshots } from "@/lib/calibration";
+import { bettingRecord } from "@/lib/record";
 import { impliedProbability, formatPercent } from "@/lib/payout";
 import { bestPriceSentence, priceMoveSentence } from "@/lib/prices";
 import { refreshStoredPrices } from "@/lib/refresh-prices";
@@ -10,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   formatAmerican,
+  formatMoney,
   formatTipoff,
   formatWhen,
   type PersistedState,
@@ -81,6 +83,7 @@ export function HistoryBoard() {
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState<string | null>(null);
   const calibration = calibrateSnapshots(state.snapshots);
+  const record = bettingRecord(state);
   const rows = state.snapshots.filter((snapshot) =>
     filter === "all" ? true : snapshot.settlement.status === filter,
   );
@@ -107,6 +110,11 @@ export function HistoryBoard() {
       {saved.error ? (
         <p className="rounded-lg bg-rose-950/50 p-3 text-sm text-rose-100">{saved.error}</p>
       ) : null}
+      <section className="rounded-xl border border-primary/30 bg-black/40 p-4">
+        <h2 className="font-medium">Your betting record</h2>
+        <p className="mt-1 text-3xl font-bold text-primary">{formatMoney(record.profit)}</p>
+        <p className="mt-1 text-sm text-muted-foreground">{record.summary}</p>
+      </section>
       <CalibrationChart calibration={calibration} />
       <div className="flex flex-wrap items-center gap-3">
         <Button

@@ -33,6 +33,8 @@ npm run build
 - A role note next to the game log: recent minutes, the per-minute rate applied to that minute average, whether the posted line sits inside the recent range, the player's own season split against the opponent when ESPN has it, and teammates listed out or doubtful. What a defense allows to a position is left out when the feed does not include it.
 - The price captured with each snapshot, including the best same-line price among books in that fetch. History can check the price again and say whether it shortened, drifted, or the line moved. After tip, that check is labeled as a look after the listed tip.
 - A calibration chart on quote history. Manual wins and losses are grouped by the chance the captured price implied, and the chart shows how often those graded picks hit.
+- A personal betting record. Each quote stores the stake from the slate at the moment it was added. Grading it won, lost, pushed, or void updates profit on singles. Pending quotes still on a slate count as open stake. The record is the user's own results.
+- A share link. Share on the slate copies `/share#...`. Opening it shows the players, prices, logs, and payout math. The link does not place a bet and does not require an account.
 - Research cards with source, fetch time, source update time, logs, minutes, hit rate, sample size, availability, and supporting, opposing, and missing evidence.
 - Suggestions that return fewer picks when the evidence bar is missed. Out and doubtful players, short samples, and low minutes are skipped.
 - Same-game selections are flagged. Correlation is not quantified.

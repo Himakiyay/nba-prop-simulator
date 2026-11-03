@@ -326,6 +326,7 @@ export interface SelectionSnapshot {
   oddsAmerican: number;
   oddsDecimal: number;
   offerId: string;
+  stake?: number;
   evidence: EvidenceSummary;
   bestSameLine?: SameLinePrice | null;
   latestPrice?: LatestPrice | null;
