@@ -311,10 +311,8 @@ async function hydrate(
       warnings,
     };
   }
-  const [stats, availability] = await Promise.all([
-    providers.stats.getLogs({ players: unique }),
-    providers.availability.getAvailability({ players: unique }),
-  ]);
+  const stats = await providers.stats.getLogs({ players: unique });
+  const availability = await providers.availability.getAvailability({ players: unique });
   const statsBlock = guard(input.mode, stats, "stats");
   const availabilityBlock = guard(input.mode, availability, "availability");
   if (statsBlock) warnings.push(statsBlock);
@@ -605,6 +603,12 @@ async function suggest(
   const built = await cardsFor(input, providers, limited, events);
   const suggestion = suggestFromCards(built.cards, applyProposal ? built.cards.length : count);
   const chosen = applyProposal ? built.cards : suggestion.chosen;
+  const visible =
+    chosen.length > 0
+      ? chosen
+      : [...built.cards]
+          .sort((a, b) => b.baseline.score - a.baseline.score)
+          .slice(0, count);
   let slip = input.slip;
   const snapshots = [];
   let applied = false;
@@ -641,7 +645,7 @@ async function suggest(
   return finish(input, {
     narrative: told.narrative,
     narrator: told.narrator,
-    cards: chosen,
+    cards: visible,
     slip,
     snapshots,
     warnings: [...warnings, ...built.warnings],

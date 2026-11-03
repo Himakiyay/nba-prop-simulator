@@ -54,6 +54,13 @@ const eventOddsSchema = eventSchema.extend({
     .optional(),
 });
 
+/** The Odds API accepts YYYY-MM-DDTHH:MM:SSZ and rejects fractional seconds. */
+export function oddsApiTimestamp(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso.replace(/\.\d+Z$/, "Z");
+  return date.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
 function toEvent(row: z.infer<typeof eventSchema>): SportEvent {
   return {
     id: row.id,
@@ -67,6 +74,18 @@ function sideOf(name: string): Side | null {
   if (name.toLowerCase() === "over") return "over";
   if (name.toLowerCase() === "under") return "under";
   return null;
+}
+
+async function oddsErrorDetail(response: Response): Promise<string | null> {
+  try {
+    const body = (await response.json()) as { message?: unknown };
+    if (typeof body.message !== "string") return null;
+    const text = body.message.replace(/\s+/g, " ").trim();
+    if (!text || /apiKey|api_key/i.test(text)) return null;
+    return text.slice(0, 240);
+  } catch {
+    return null;
+  }
 }
 
 export function createOddsApiProvider(input: {
@@ -86,7 +105,13 @@ export function createOddsApiProvider(input: {
     try {
       const response = await fetch(url, { cache: "no-store" });
       if (!response.ok) {
-        return { ok: false, message: `The Odds API returned HTTP ${response.status}.` };
+        const detail = await oddsErrorDetail(response);
+        return {
+          ok: false,
+          message: detail
+            ? `The Odds API returned HTTP ${response.status}. ${detail}`
+            : `The Odds API returned HTTP ${response.status}.`,
+        };
       }
       return { ok: true, body: await response.json() };
     } catch {
@@ -100,8 +125,8 @@ export function createOddsApiProvider(input: {
       const cached = providerCache.get<DataResult<SportEvent[]>>(cacheKey);
       if (cached) return cached;
       const result = await getJson("/sports/basketball_nba/events", {
-        commenceTimeFrom: fromIso,
-        commenceTimeTo: toIso,
+        commenceTimeFrom: oddsApiTimestamp(fromIso),
+        commenceTimeTo: oddsApiTimestamp(toIso),
       });
       if (!result.ok) {
         const stale = providerCache.getStale<DataResult<SportEvent[]>>(cacheKey);
@@ -117,7 +142,19 @@ export function createOddsApiProvider(input: {
       }
       const parsed = z.array(eventSchema).safeParse(result.body);
       if (!parsed.success) return unavailable(SOURCE, "The Odds API event list did not match the expected shape.");
-      const events = parsed.data
+      let rows = parsed.data;
+      let outsideWindow = false;
+      if (rows.length === 0) {
+        const upcoming = await getJson("/sports/basketball_nba/events", {});
+        if (!upcoming.ok) return unavailable(SOURCE, upcoming.message);
+        const upcomingParsed = z.array(eventSchema).safeParse(upcoming.body);
+        if (!upcomingParsed.success) {
+          return unavailable(SOURCE, "The Odds API event list did not match the expected shape.");
+        }
+        rows = upcomingParsed.data.filter((row) => row.commence_time >= oddsApiTimestamp(fromIso));
+        outsideWindow = true;
+      }
+      const events = rows
         .map(toEvent)
         .sort((a, b) => a.commenceTime.localeCompare(b.commenceTime))
         .slice(0, limit);
@@ -126,8 +163,11 @@ export function createOddsApiProvider(input: {
         fetchedAt: new Date().toISOString(),
         source: SOURCE,
         fictional: false,
-        message:
-          parsed.data.length > events.length
+        message: outsideWindow
+          ? events.length === 0
+            ? "No upcoming NBA games were listed."
+            : "No NBA games start in the next 36 hours. Showing the next scheduled games instead."
+          : rows.length > events.length
             ? `Priced the first ${events.length} events in the window to limit quota use.`
             : null,
       });
@@ -144,6 +184,7 @@ export function createOddsApiProvider(input: {
       const events: SportEvent[] = [];
       const offers: Offer[] = [];
       const warnings: string[] = [];
+      let notedRegionFallback = false;
       let stale = false;
       let newestFetch = new Date().toISOString();
       let sourceUpdatedAt: string | null = null;
@@ -180,15 +221,40 @@ export function createOddsApiProvider(input: {
               continue;
             }
             const fetchedAt = new Date().toISOString();
-            const built = offersFromEvent(parsed.data, fetchedAt);
+            let built = offersFromEvent(parsed.data, fetchedAt);
+            let sourceUpdated = newestUpdate(parsed.data);
+            const configuredRegions = input.regions.split(",").map((region) => region.trim());
+            if (built.offers.length === 0 && !configuredRegions.includes("us2")) {
+              const fallback = await getJson(`/sports/basketball_nba/events/${encodeURIComponent(eventId)}/odds`, {
+                regions: "us2",
+                markets: marketParam,
+                oddsFormat: "american",
+              });
+              if (fallback.ok) {
+                const fallbackParsed = eventOddsSchema.safeParse(fallback.body);
+                if (fallbackParsed.success) {
+                  const fallbackBuilt = offersFromEvent(fallbackParsed.data, fetchedAt);
+                  if (fallbackBuilt.offers.length > 0) {
+                    built = fallbackBuilt;
+                    sourceUpdated = newestUpdate(fallbackParsed.data);
+                    if (!notedRegionFallback) {
+                      warnings.push(
+                        "No player props were listed for the configured US region. Used US2 books that had posted props.",
+                      );
+                      notedRegionFallback = true;
+                    }
+                  }
+                }
+              }
+            }
             pack = okResult({
               data: built,
               fetchedAt,
-              sourceUpdatedAt: newestUpdate(parsed.data),
+              sourceUpdatedAt: sourceUpdated,
               source: SOURCE,
               fictional: false,
             });
-            providerCache.set(cacheKey, pack, input.cacheTtlMs);
+            if (built.offers.length > 0) providerCache.set(cacheKey, pack, input.cacheTtlMs);
           }
         }
         if (pack.status === "unavailable") continue;

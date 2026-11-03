@@ -154,13 +154,16 @@ export function createBallDontLieProviders(input: {
       async getLogs({ players }) {
         const data: Record<string, { logs: GameLog[]; teamName: string | null }> = {};
         const warnings: string[] = [];
+        let rateLimited = false;
         const start = new Date();
         start.setUTCDate(start.getUTCDate() - 120);
         const startDate = start.toISOString().slice(0, 10);
         for (const player of players) {
+          if (rateLimited) break;
           const resolved = await resolvePlayer(player.name);
           if (!resolved.ok) {
             warnings.push(resolved.message);
+            if (resolved.message.includes("429")) rateLimited = true;
             continue;
           }
           const cacheKey = `bdl:stats:${resolved.id}:${startDate}`;
@@ -177,6 +180,7 @@ export function createBallDontLieProviders(input: {
           });
           if (!result.ok) {
             warnings.push(result.message);
+            if (result.message.includes("429")) rateLimited = true;
             continue;
           }
           const parsed = statsSchema.safeParse(result.body);
@@ -220,6 +224,9 @@ export function createBallDontLieProviders(input: {
           providerCache.set(cacheKey, logs, input.cacheTtlMs);
           data[player.id] = { logs, teamName: resolved.teamName };
         }
+        if (rateLimited) {
+          warnings.push("BallDontLie rate limit reached. Remaining players were not looked up.");
+        }
         return okResult({
           data,
           fetchedAt: new Date().toISOString(),
@@ -233,12 +240,15 @@ export function createBallDontLieProviders(input: {
       async getAvailability({ players }) {
         const data: Record<string, AvailabilityNote | null> = {};
         const warnings: string[] = [];
+        let rateLimited = false;
         const fetchedAt = new Date().toISOString();
         for (const player of players) {
+          if (rateLimited) break;
           const resolved = await resolvePlayer(player.name);
           if (!resolved.ok) {
             warnings.push(resolved.message);
             data[player.id] = null;
+            if (resolved.message.includes("429")) rateLimited = true;
             continue;
           }
           const cacheKey = `bdl:injury:${resolved.id}`;
@@ -253,6 +263,7 @@ export function createBallDontLieProviders(input: {
           });
           if (!result.ok) {
             warnings.push(result.message);
+            if (result.message.includes("429")) rateLimited = true;
             continue;
           }
           const parsed = injurySchema.safeParse(result.body);
@@ -279,6 +290,9 @@ export function createBallDontLieProviders(input: {
           };
           providerCache.set(cacheKey, { note }, input.cacheTtlMs);
           data[player.id] = note;
+        }
+        if (rateLimited) {
+          warnings.push("BallDontLie rate limit reached. Remaining players were not looked up.");
         }
         return okResult({
           data,
