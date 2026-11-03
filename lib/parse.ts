@@ -81,9 +81,10 @@ function parseLine(text: string): number | null {
 function playerFragment(text: string): string | null {
   const cleaned = text
     .replace(
-      /\b(analyze|research|look|at|break|down|grade|compare|versus|vs|the|prop|props|player|over|under|rebound|rebounds|point|points|assist|assists|three|threes|block|blocks|steal|steals|turnover|turnovers|and|this|that)\b/gi,
+      /\b(analyze|research|look|at|break|down|grade|compare|versus|vs|the|prop|props|player|over|under|rebound|rebounds|point|points|assist|assists|three|threes|block|blocks|steal|steals|turnover|turnovers|and|this|that|add|is|are|was|reliable|reliability|whether|what|about|check|how|good|today|best|option|slate|for|me|a|an|to|name|please|just)\b/gi,
       " ",
     )
+    .replace(/['’]s\b/g, " ")
     .replace(/\b\d+(?:\.\d+)?\b/g, " ")
     .replace(/[^a-zA-Z\s'-]/g, " ")
     .replace(/\s+/g, " ")
@@ -101,7 +102,9 @@ export function parseIntent(message: string, slip: Slip): Intent {
   }
 
   if (
-    /suggest|four-pick|4-pick|build (me )?a|research tonight|tonight'?s nba|slate/.test(lower)
+    /suggest|four-pick|4-pick|build (me )?a|research tonight|tonight'?s nba|best slate|slate for today|best option|best props/.test(
+      lower,
+    )
   ) {
     return { ...blankIntent("suggest"), count: requestedCount(lower) };
   }
@@ -145,11 +148,22 @@ export function parseIntent(message: string, slip: Slip): Intent {
     return blankIntent("add_recent");
   }
 
+  if (/^add\b/.test(lower)) {
+    return {
+      ...blankIntent("analyze"),
+      player: playerFragment(text),
+      market: detectMarket(text),
+      side: parseSide(text),
+      line: parseLine(text),
+      offerId: "add",
+    };
+  }
+
   if (/what markets|which markets|supported markets/.test(lower)) {
     return blankIntent("list_markets");
   }
 
-  if (/\b(analyze|research|break down|grade|look at)\b/.test(lower)) {
+  if (/\b(analyze|research|break down|grade|look at)\b/.test(lower) || playerFragment(text)) {
     return {
       ...blankIntent("analyze"),
       player: playerFragment(text),
@@ -162,7 +176,7 @@ export function parseIntent(message: string, slip: Slip): Intent {
   return {
     ...blankIntent("clarify"),
     clarification:
-      "I can suggest a paper slip, analyze one prop, compare two props, or edit the current slip. Name the player and market if you have one in mind.",
+      "Name a player, such as Tyrese Maxey points, or ask for the best slate today. You can then add that prop to the slate.",
   };
 }
 

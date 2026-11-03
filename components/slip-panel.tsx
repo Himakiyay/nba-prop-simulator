@@ -40,7 +40,7 @@ export function SlipPanel({
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-4">
       <div>
         <div className="flex items-center justify-between gap-2">
-          <h2 className="font-heading text-2xl">Paper slip</h2>
+          <h2 className="font-heading text-2xl">Your slate</h2>
           <Badge variant="outline">No bet placed</Badge>
         </div>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">

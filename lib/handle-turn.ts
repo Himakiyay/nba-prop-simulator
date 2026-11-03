@@ -181,7 +181,7 @@ export async function handleTurn(input: TurnInput, providers: ProviderSet): Prom
 
 async function resolveIntent(input: TurnInput, providers: ProviderSet) {
   const warnings: string[] = [];
-  if (/replace the (current )?slip with (this|the) proposal/i.test(input.message)) {
+  if (/replace the (current )?(slip|slate) with (this|the) proposal/i.test(input.message)) {
     return { intent: { ...parseIntent("suggest a four-pick slip", input.slip), type: "apply_proposal" as const }, warnings };
   }
   if (input.mode === "live" && providers.language.configured) {
@@ -193,10 +193,6 @@ async function resolveIntent(input: TurnInput, providers: ProviderSet) {
       return { intent: classified.data, warnings };
     }
     warnings.push(`${classified.message} Used the command parser instead.`);
-  } else if (input.mode === "live") {
-    warnings.push(
-      "Language model is not configured. Used the command parser. Live providers are not replaced with demo fixtures.",
-    );
   }
   return { intent: parseIntent(input.message, input.slip), warnings };
 }
@@ -394,15 +390,25 @@ async function cardsFor(
   return { cards, warnings: hydrated.warnings };
 }
 
+function playerChoices(name: string): string {
+  return `Research ${name}'s prop for today`;
+}
+
 function matchPlayers(query: string, offers: Offer[]) {
   const players = uniqueBy(
     offers.map((offer) => ({ id: offer.playerId, name: offer.playerName })),
     (player) => player.id,
   );
   const needle = normalizeName(query);
+  const tokens = needle.split(" ").filter((token) => token.length >= 3);
   const exact = players.filter((player) => normalizeName(player.name) === needle);
   if (exact.length) return exact;
-  return players.filter((player) => normalizeName(player.name).includes(needle));
+  const partial = players.filter((player) => {
+    const name = normalizeName(player.name);
+    if (name.includes(needle) || needle.includes(name)) return true;
+    return tokens.length > 0 && tokens.every((token) => name.includes(token));
+  });
+  return partial;
 }
 
 function findOffer(
@@ -410,7 +416,13 @@ function findOffer(
   query: { player: string | null; market: string | null; side: "over" | "under" | null; line: number | null },
   slip: Slip,
   preferred: string | null,
-): { offer: Offer | null; clarification: string | null; assumedSide: boolean } {
+): {
+  offer: Offer | null;
+  clarification: string | null;
+  assumedSide: boolean;
+  assumedMarket: boolean;
+  options: string[];
+} {
   let player = query.player;
   if (!player) {
     const names = uniqueBy(slip.selections, (selection) => selection.playerId);
@@ -418,8 +430,10 @@ function findOffer(
     else {
       return {
         offer: null,
-        clarification: "Which player should I use? Name them in the request.",
+        clarification: "Which player should I look up?",
         assumedSide: false,
+        assumedMarket: false,
+        options: ["Best slate for today"],
       };
     }
   }
@@ -427,20 +441,30 @@ function findOffer(
   if (matched.length === 0) {
     return {
       offer: null,
-      clarification: `I could not find ${player} in the retrieved markets.`,
+      clarification: `No quoted player matches ${player} in the games just retrieved.`,
       assumedSide: false,
+      assumedMarket: false,
+      options: ["Best slate for today"],
     };
   }
   if (matched.length > 1) {
+    const names = matched.slice(0, 6).map((item) => item.name);
     return {
       offer: null,
-      clarification: `Which player did you mean: ${matched.map((item) => item.name).join(", ")}?`,
+      clarification: `Which player did you mean: ${names.join(", ")}?`,
       assumedSide: false,
+      assumedMarket: false,
+      options: names.map((name) => playerChoices(name)),
     };
   }
   let pool = offers.filter((offer) => offer.playerId === matched[0].id);
+  let assumedMarket = query.market == null;
   if (query.market) {
     pool = pool.filter((offer) => marketFamily(offer.marketKey) === marketFamily(query.market!));
+    assumedMarket = false;
+  } else {
+    const points = pool.filter((offer) => marketFamily(offer.marketKey) === "player_points");
+    if (points.length > 0) pool = points;
   }
   const assumedSide = query.side == null;
   const side = query.side ?? "over";
@@ -455,6 +479,11 @@ function findOffer(
           ? `${query.line} was not in the retrieved ${side} lines for ${matched[0].name}. Available lines: ${lines.join(", ")}.`
           : `No ${side} quote was retrieved for ${matched[0].name}.`,
         assumedSide,
+        assumedMarket,
+        options: lines.map(
+          (line) =>
+            `Research ${matched[0].name} ${side} ${line} ${marketLabel(pool[0]?.marketKey ?? "player_points").toLowerCase()} for today`,
+        ),
       };
     }
     pool = exact;
@@ -467,8 +496,15 @@ function findOffer(
   if (lines.length > 1) {
     return {
       offer: null,
-      clarification: `Which line for ${matched[0].name}? ${lines.sort((a, b) => a - b).join(", ")}.`,
+      clarification: `Which line for ${matched[0].name}?`,
       assumedSide,
+      assumedMarket,
+      options: lines
+        .sort((a, b) => a - b)
+        .map(
+          (line) =>
+            `Research ${matched[0].name} ${side} ${line} ${marketLabel(pool[0].marketKey).toLowerCase()} for today`,
+        ),
     };
   }
   if (!pool[0]) {
@@ -476,9 +512,13 @@ function findOffer(
       offer: null,
       clarification: `No matching quote was retrieved for ${matched[0].name}.`,
       assumedSide,
+      assumedMarket,
+      options: ["points", "rebounds", "assists"].map(
+        (market) => `Research ${matched[0].name}'s ${market} for today`,
+      ),
     };
   }
-  return { offer: pool[0], clarification: null, assumedSide };
+  return { offer: pool[0], clarification: null, assumedSide, assumedMarket, options: [] };
 }
 
 async function analyze(
@@ -491,7 +531,12 @@ async function analyze(
 ): Promise<TurnResult> {
   const found = findOffer(offers, intent, input.slip, providers.preferredBookmaker);
   if (!found.offer || found.clarification) {
-    return finish(input, { narrative: found.clarification ?? "No quote matched.", clarification: found.clarification, warnings });
+    return finish(input, {
+      narrative: found.clarification ?? "No quote matched.",
+      clarification: found.clarification,
+      warnings,
+      followUps: found.options,
+    });
   }
   const built = await cardsFor(input, providers, related(offers, found.offer), events);
   const card = built.cards.find((item) => item.offer.id === found.offer!.id) ?? built.cards[0];
@@ -499,16 +544,38 @@ async function analyze(
   const told = await maybeNarrate(
     input,
     providers,
-    narrateAnalyze(card, found.assumedSide),
+    narrateAnalyze(card, found.assumedSide, found.assumedMarket),
     [card],
     warnings,
   );
+  let slip = input.slip;
+  const snapshots = [];
+  let narrative = told.narrative;
+  if (intent.offerId === "add") {
+    const edit = addSelection(slip, card, alternatesFor(card.offer, offers), input.now);
+    if (!edit.ok) {
+      narrative = `${edit.reason} ${narrative}`;
+    } else {
+      slip = edit.slip;
+      if (edit.snapshot) snapshots.push(edit.snapshot);
+      narrative = `Added ${card.offer.playerName} to the slate. ${narrative}`;
+    }
+  }
+  const currentMarket = marketLabel(card.offer.marketKey).toLowerCase();
   return finish(input, {
-    narrative: told.narrative,
+    narrative,
     narrator: told.narrator,
     cards: [card],
+    slip,
+    snapshots,
     warnings: [...warnings, ...built.warnings],
-    followUps: ["Add this to the slip", "Lower this line to an available alternative"],
+    followUps: [
+      `Add ${card.offer.playerName} to the slate`,
+      ...["points", "rebounds", "assists"]
+        .filter((market) => market !== currentMarket)
+        .map((market) => `Research ${card.offer.playerName}'s ${market} for today`),
+      "Best slate for today",
+    ],
   });
 }
 
@@ -651,9 +718,10 @@ async function suggest(
     warnings: [...warnings, ...built.warnings],
     rejected,
     proposalApplied: applied && canApply,
-    followUps: canApply
-      ? ["Explain the biggest uncertainty in this slip."]
-      : ["Replace the slip with this proposal"],
+    followUps: [
+      ...chosen.slice(0, 3).map((card) => `Research ${card.offer.playerName}'s prop for today`),
+      canApply ? "Explain the biggest uncertainty in this slate." : "Replace the slate with this proposal",
+    ],
   });
 }
 

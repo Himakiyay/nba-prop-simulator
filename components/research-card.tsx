@@ -10,6 +10,26 @@ import {
 } from "@/lib/domain";
 import { statFromLog, statKeysForMarket } from "@/lib/stats";
 
+function readOn(card: ResearchCard): { title: string; detail: string } {
+  if (card.hitRate.decisive === 0) {
+    return {
+      title: "Not enough logs to judge this",
+      detail: "The price is from the odds feed. No decisive games came back, so this is not a read on whether the prop holds up.",
+    };
+  }
+  const record = `${card.hitRate.hits} of ${card.hitRate.decisive} decisive games cleared this line.`;
+  if (!card.baseline.qualified) {
+    return {
+      title: "Thin recent sample",
+      detail: `${record} ${card.baseline.excludeReason ?? "That is not enough to put it on the daily slate."} A past rate is not the chance it wins.`,
+    };
+  }
+  return {
+    title: "Enough recent games to compare",
+    detail: `${record} That is the past record, not a prediction, and it is not a sportsbook edge.`,
+  };
+}
+
 export function ResearchCardView({
   card,
   onAdd,
@@ -18,19 +38,16 @@ export function ResearchCardView({
   onAdd?: (card: ResearchCard) => void;
 }) {
   const statKey = statKeysForMarket(card.offer.marketKey)[0];
+  const read = readOn(card);
   return (
     <article className="rounded-xl border border-border bg-card/80 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs tracking-[0.16em] text-muted-foreground uppercase">
-            {card.offer.fictional ? "Fictional demo quote" : "Live quote"}
-          </p>
+          <p className="text-xs tracking-[0.16em] text-muted-foreground uppercase">{read.title}</p>
           <h3 className="mt-1 font-heading text-xl text-foreground">{card.offer.playerName}</h3>
           <p className="text-sm text-muted-foreground">
-            {card.teamName ?? "Team not supplied"}
-            {card.opponentName ? ` vs ${card.opponentName}` : ""}
-            {" · "}
-            {card.event.awayTeamName} at {card.event.homeTeamName}
+            Quoted for {card.event.awayTeamName} at {card.event.homeTeamName}
+            {card.teamName ? ` · ${card.teamName}` : ""}
           </p>
           <p className="text-sm text-muted-foreground">{formatTipoff(card.event.commenceTime)}</p>
         </div>
@@ -45,61 +62,41 @@ export function ResearchCardView({
         </div>
       </div>
 
-      <dl className="mt-4 grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
-        <div>
-          <dt className="text-foreground">Odds source</dt>
-          <dd>{card.oddsSource.source}</dd>
-          <dd>Fetched {formatWhen(card.oddsSource.fetchedAt)}</dd>
-          <dd>
-            Source updated{" "}
-            {card.oddsSource.sourceUpdatedAt ? formatWhen(card.oddsSource.sourceUpdatedAt) : "not supplied"}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-foreground">Logs</dt>
-          <dd>{card.statsSource ? card.statsSource.source : "Unavailable"}</dd>
-          <dd>
-            {card.hitRate.historicalRate == null
-              ? "No decisive games"
-              : `${card.hitRate.hits} of ${card.hitRate.decisive} decisive games`}
-          </dd>
-          <dd>
-            Sample {card.hitRate.sampleSize}
-            {card.hitRate.pushes ? `, ${card.hitRate.pushes} push` : ""}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-foreground">Availability</dt>
-          <dd>{card.availabilitySource ? card.availabilitySource.source : "Unavailable"}</dd>
-          <dd>{card.availability ? card.availability.status : card.availabilityState}</dd>
-          <dd>{card.availability?.detail ?? "No detail supplied"}</dd>
-        </div>
-      </dl>
-
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
-        <EvidenceList title="Supporting" items={card.supporting} tone="support" />
-        <EvidenceList title="Opposing" items={card.opposing} tone="oppose" />
-        <EvidenceList title="Missing" items={card.missing} tone="missing" />
-      </div>
-
-      <div className="mt-4 rounded-lg bg-background/60 p-3">
-        <p className="text-sm">
-          Ranking score {card.baseline.score.toFixed(2)}{" "}
-          <span className="text-muted-foreground">({card.baseline.modelVersion})</span>
+      <p className="mt-4 text-sm leading-6">{read.detail}</p>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {card.hitRate.decisive === 0
+          ? "Logs: none returned"
+          : `Logs: ${card.hitRate.hits} of ${card.hitRate.decisive}`}
+        {" · "}
+        {card.minutes.average == null ? "Minutes unavailable" : `${card.minutes.average.toFixed(1)} minutes`}
+        {" · "}
+        {card.availability
+          ? card.availability.status
+          : card.availabilityState === "not_listed"
+            ? "Not on the injury report"
+            : "Availability unavailable"}
+        {" · "}
+        {card.offer.bookmakerTitle}
+        {card.offer.fictional ? " · fictional" : ""}
+      </p>
+      <details className="mt-4 text-xs text-muted-foreground">
+        <summary className="cursor-pointer text-foreground">Sources and ranking math</summary>
+        <p className="mt-2">
+          Odds {card.oddsSource.source}, fetched {formatWhen(card.oddsSource.fetchedAt)}, source updated{" "}
+          {card.oddsSource.sourceUpdatedAt ? formatWhen(card.oddsSource.sourceUpdatedAt) : "not supplied"}.
         </p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {card.baseline.qualified
-            ? "Meets the evidence bar for an automatic suggestion. That is not an edge."
-            : card.baseline.excludeReason}
+        <p className="mt-1">
+          Logs {card.statsSource?.source ?? "unavailable"}. Availability{" "}
+          {card.availability?.detail ?? card.availabilityState}.
         </p>
-        <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+        <ul className="mt-2 space-y-1">
           {card.baseline.factors.map((factor) => (
             <li key={factor.key}>
               {factor.label}: {factor.value.toFixed(2)} × {factor.weight.toFixed(2)}. {factor.note}
             </li>
           ))}
         </ul>
-      </div>
+      </details>
 
       {card.logs.length > 0 ? (
         <div className="mt-4 overflow-x-auto">
@@ -130,44 +127,12 @@ export function ResearchCardView({
         <p className="mt-4 text-sm text-muted-foreground">No game logs were returned for this player.</p>
       )}
 
-      <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
-        {card.limitations.map((item) => (
-          <li key={item}>{item}</li>
-        ))}
-      </ul>
       {onAdd ? (
         <Button className="mt-3" size="sm" onClick={() => onAdd(card)}>
-          Add to paper slip
+          Add to slate
         </Button>
       ) : null}
     </article>
-  );
-}
-
-function EvidenceList({
-  title,
-  items,
-  tone,
-}: {
-  title: string;
-  items: string[];
-  tone: "support" | "oppose" | "missing";
-}) {
-  const color =
-    tone === "support" ? "text-emerald-200" : tone === "oppose" ? "text-rose-200" : "text-amber-100";
-  return (
-    <section>
-      <h4 className={`text-xs tracking-wide uppercase ${color}`}>{title}</h4>
-      {items.length === 0 ? (
-        <p className="mt-1 text-xs text-muted-foreground">None recorded.</p>
-      ) : (
-        <ul className="mt-1 space-y-1 text-xs leading-5 text-foreground/90">
-          {items.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-      )}
-    </section>
   );
 }
 

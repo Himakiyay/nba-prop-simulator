@@ -29,10 +29,10 @@ import { addSelection, alternatesFor } from "@/lib/slip";
 import type { TurnResult } from "@/lib/turn";
 
 const STARTERS = [
-  "Research tonight's NBA games and suggest a four-pick slip.",
-  "Analyze Jordan Hale over 24.5 points.",
-  "Compare Andre Pell and Luis Navarro rebound props.",
-  "Explain the biggest uncertainty in this slip.",
+  "Best slate for today",
+  "Research Tyrese Maxey's prop for today",
+  "Research Cade Cunningham's points for today",
+  "Add Tyrese Maxey to the slate",
 ];
 
 interface StatusBody {
@@ -88,7 +88,7 @@ export function Desk() {
         setStatus(body);
         const current = browserStore().read();
         if (!current.state && !current.rawError) {
-          browserStore().write(setMode(createInitialState(new Date().toISOString()), body.defaultMode));
+          browserStore().write(setMode(createInitialState(new Date().toISOString()), "live"));
         }
       })
       .catch(() => {
@@ -124,7 +124,7 @@ export function Desk() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mode: state.mode,
+          mode: "live",
           message: trimmed,
           slip,
           recentOffers,
@@ -158,15 +158,11 @@ export function Desk() {
   }
 
   const slip = activeSlip(state);
-  const liveGaps =
-    state.mode === "live"
-      ? [
-          status && !status.odds ? "Live odds need THE_ODDS_API_KEY." : null,
-          status && !status.stats ? "Live game logs need BALLDONTLIE_API_KEY." : null,
-          status && !status.availability ? "Live availability needs BALLDONTLIE_API_KEY." : null,
-          status && !status.languageModel ? "Open-ended chat needs OPENAI_API_KEY." : null,
-        ].filter((item): item is string => Boolean(item))
-      : [];
+  const liveGaps = [
+    status && !status.odds ? "Live odds need THE_ODDS_API_KEY." : null,
+    status && !status.stats ? "Live game logs need BALLDONTLIE_API_KEY." : null,
+    status && !status.availability ? "Live availability needs BALLDONTLIE_API_KEY." : null,
+  ].filter((item): item is string => Boolean(item));
 
   return (
     <main className="flex h-dvh flex-col bg-[radial-gradient(circle_at_top_left,rgba(230,179,90,0.08),transparent_32rem)]">
@@ -178,21 +174,7 @@ export function Desk() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant={state.mode === "demo" ? "default" : "outline"}
-            onClick={() => commit(setMode(state, "demo"))}
-          >
-            Demo
-          </Button>
-          <Button
-            size="sm"
-            variant={state.mode === "live" ? "default" : "outline"}
-            onClick={() => commit(setMode(state, "live"))}
-          >
-            Live
-          </Button>
-          <Badge variant="secondary">{state.mode === "demo" ? "Fictional fixtures" : "Live providers"}</Badge>
+          <Badge variant="secondary">Live NBA</Badge>
           <Link href="/history" className="hidden text-sm text-primary sm:inline">
             History
           </Link>
@@ -200,11 +182,11 @@ export function Desk() {
             <SheetTrigger
               render={<Button size="sm" variant="outline" className="lg:hidden" />}
             >
-              Slip ({slip.selections.length})
+              Slate ({slip.selections.length})
             </SheetTrigger>
             <SheetContent className="w-full sm:max-w-md">
               <SheetHeader>
-                <SheetTitle>Paper slip</SheetTitle>
+                <SheetTitle>Your slate</SheetTitle>
               </SheetHeader>
               <SlipPanel state={state} onChange={commit} onError={setError} />
             </SheetContent>
@@ -217,14 +199,14 @@ export function Desk() {
           <div ref={scroller} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
             <div className="rounded-xl border border-border bg-card/50 p-4 text-sm leading-6">
               <p>
-                Ask for a slate, a player prop, a comparison, or an edit to the paper slip. Hit
-                rates and ranking scores are calculated from retrieved logs. They are not win
-                probabilities, and nothing here places a bet.
+                Pick a button or type a player. Each card says whether the recent logs are enough
+                to compare, and you can add the ones you want onto one slate. Nothing here places
+                a bet.
               </p>
               <p className="mt-2 text-muted-foreground">
-                {state.mode === "demo"
-                  ? "Demo mode is on. Players, quotes, logs, and injuries are fictional and labeled."
-                  : "Live mode is on. Missing providers stay unavailable. Demo numbers are not filled in."}
+                {status && !status.languageModel
+                  ? "The OpenAI key is empty, so free-form questions use the buttons and player names. Paste OPENAI_API_KEY into .env.local and restart to talk in your own words."
+                  : "The language model can rephrase a question. The prices and logs still come from the data feeds."}
               </p>
               {liveGaps.length > 0 ? (
                 <ul className="mt-2 text-amber-100">
@@ -251,7 +233,7 @@ export function Desk() {
             ) : null}
             {state.messages.length === 0 ? (
               <div>
-                <p className="text-sm text-muted-foreground">Starter questions</p>
+                <p className="text-sm text-muted-foreground">Choose one</p>
                 <div className="mt-2 flex flex-col gap-2">
                   {STARTERS.map((prompt) => (
                     <button
@@ -275,17 +257,18 @@ export function Desk() {
                 }
               >
                 <p className="text-sm leading-6 whitespace-pre-wrap">{message.content}</p>
-                {message.role === "assistant" && message.fictional ? (
-                  <Badge variant="secondary">Fictional demo response</Badge>
+                {message.warnings.filter((warning) => !warning.startsWith("Language model is not")).length > 0 ? (
+                  <details className="text-xs text-amber-100">
+                    <summary className="cursor-pointer">Feed notes</summary>
+                    {message.warnings
+                      .filter((warning) => !warning.startsWith("Language model is not"))
+                      .map((warning) => (
+                        <p key={warning} className="mt-1">
+                          {warning}
+                        </p>
+                      ))}
+                  </details>
                 ) : null}
-                {message.role === "assistant" && message.fictional === false ? (
-                  <Badge variant="outline">Live response</Badge>
-                ) : null}
-                {message.warnings.map((warning) => (
-                  <p key={warning} className="text-xs text-amber-100">
-                    {warning}
-                  </p>
-                ))}
                 {message.uncertainty?.biggest ? (
                   <div className="rounded-lg border border-border p-3 text-sm">
                     <p className="font-medium">{message.uncertainty.biggest.title}</p>
@@ -320,6 +303,18 @@ export function Desk() {
               void send(draft);
             }}
           >
+            <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
+              {STARTERS.map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  className="shrink-0 rounded-full border border-border px-3 py-1 text-left text-xs hover:border-primary/50"
+                  onClick={() => send(prompt)}
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
             <label className="sr-only" htmlFor="research-prompt">
               Research request
             </label>
@@ -328,7 +323,7 @@ export function Desk() {
               value={draft}
               maxLength={MESSAGE_CHAR_LIMIT}
               rows={3}
-              placeholder="Research a prop, compare two, or edit the slip."
+              placeholder="Name a player, or ask for the best slate today."
               className="w-full resize-none rounded-lg border border-input bg-transparent px-3 py-2 text-sm outline-none focus-visible:border-ring"
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
@@ -349,7 +344,7 @@ export function Desk() {
                   className="hidden text-primary sm:inline"
                   onClick={() => commit(addSlip(state, new Date().toISOString()))}
                 >
-                  New slip
+                  New slate
                 </button>
               </p>
               <Button type="submit" disabled={loading || draft.trim().length === 0}>

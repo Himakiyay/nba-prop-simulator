@@ -35,6 +35,17 @@ describe("structured action validation", () => {
     expect(parseIntent("Explain the biggest uncertainty in this slip.", slip).type).toBe(
       "uncertainty",
     );
+    expect(parseIntent("Research Tyrese Maxey's prop for today", slip)).toMatchObject({
+      type: "analyze",
+      player: "Tyrese Maxey",
+    });
+    expect(parseIntent("Best slate for today", slip).type).toBe("suggest");
+    expect(parseIntent("Add Tyrese Maxey to the slate", slip)).toMatchObject({
+      type: "analyze",
+      player: "Tyrese Maxey",
+      offerId: "add",
+    });
+    expect(parseIntent("lebron", slip)).toMatchObject({ type: "analyze", player: "lebron" });
   });
 
   it("rejects a model payload that is not the intent schema", () => {

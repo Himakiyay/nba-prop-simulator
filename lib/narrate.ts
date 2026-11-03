@@ -13,23 +13,26 @@ export function narrativeAllowed(text: string): boolean {
   return !BANNED.test(text);
 }
 
-export function narrateAnalyze(card: ResearchCard, assumedSide: boolean): string {
-  const rate =
-    card.hitRate.historicalRate == null
-      ? "no decisive games were in the supplied logs"
-      : `${card.hitRate.hits} of ${card.hitRate.decisive} decisive games finished ${card.offer.side} ${card.offer.line}`;
-  const sentences = [
-    `${card.offer.playerName} ${card.offer.side} ${card.offer.line} ${marketLabel(card.offer.marketKey).toLowerCase()} is quoted at ${formatAmerican(card.offer.oddsAmerican)} on ${card.offer.bookmakerTitle}.`,
-    assumedSide
-      ? "The request did not say over or under, so this uses the over."
-      : "",
-    `In the supplied logs, ${rate}. That historical rate is not a probability for the upcoming game.`,
-    `The ranking score is ${card.baseline.score.toFixed(2)} under ${card.baseline.modelVersion}. It orders candidates from the shrunk hit rate, minutes, availability, and sample size.`,
-    card.baseline.excludeReason
-      ? `An automatic suggestion would skip this prop: ${card.baseline.excludeReason}`
-      : "The evidence bar for an automatic suggestion is met. That still is not an edge.",
-  ];
-  return sentences.filter(Boolean).join(" ");
+export function narrateAnalyze(
+  card: ResearchCard,
+  assumedSide: boolean,
+  assumedMarket: boolean,
+): string {
+  const prop = `${card.offer.playerName} ${card.offer.side} ${card.offer.line} ${marketLabel(card.offer.marketKey).toLowerCase()}`;
+  const read =
+    card.hitRate.decisive === 0
+      ? "There are not enough returned logs to judge it. The price is real, and the game log is missing."
+      : card.baseline.qualified
+        ? `${card.hitRate.hits} of ${card.hitRate.decisive} decisive games cleared this line. That is a past record, not the chance it wins.`
+        : `${card.hitRate.hits} of ${card.hitRate.decisive} decisive games cleared this line, and the sample is too thin for a daily slate. That is still not a prediction.`;
+  return [
+    `${prop} is ${formatAmerican(card.offer.oddsAmerican)} at ${card.offer.bookmakerTitle}.`,
+    assumedMarket ? "No market was named, so this uses the main points prop." : "",
+    assumedSide ? "No over or under was named, so this uses the over." : "",
+    read,
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 export function narrateCompare(left: ResearchCard, right: ResearchCard): string {
@@ -53,18 +56,18 @@ export function narrateSuggest(input: {
   limitations: string[];
 }): string {
   if (input.chosen.length === 0) {
-    return `I looked through the retrieved main-line overs and none cleared the evidence bar, so I did not invent picks to fill a ${input.requested}-selection slip. ${input.limitations.join(" ")}`;
+    return `No prop cleared the daily bar, so I did not fill a ${input.requested}-pick slate with weaker quotes. The cards below are the closest prices, with the missing evidence on each one. ${input.limitations.join(" ")}`;
   }
   const list = input.chosen
     .map(
       (card, index) =>
-        `${index + 1}. ${card.offer.playerName} ${card.offer.side} ${card.offer.line} ${marketLabel(card.offer.marketKey).toLowerCase()} (${formatAmerican(card.offer.oddsAmerican)}, ranking score ${card.baseline.score.toFixed(2)})`,
+        `${index + 1}. ${card.offer.playerName} ${card.offer.side} ${card.offer.line} ${marketLabel(card.offer.marketKey).toLowerCase()} (${formatAmerican(card.offer.oddsAmerican)})`,
     )
     .join(" ");
   const applied = input.applied
-    ? "They were added to the empty paper slip, and the original quotes were snapshotted."
-    : "The current slip already had selections, so I left it unchanged.";
-  return `Proposed ${input.chosen.length} selection${input.chosen.length === 1 ? "" : "s"} with ${BASELINE_MODEL_VERSION}. ${list} ${applied} ${input.limitations.join(" ")} Historical hit rates are not win probabilities, and this is not a sportsbook parlay quote.`;
+    ? "They were added to the empty slate, and each quote was snapshotted."
+    : "The slate already had picks, so I left it unchanged. Say “replace the slate with this proposal” to swap it.";
+  return `Best supported slate for the games on the board: ${list} ${applied} This is the highest-ranked set that has enough logs, minutes, and availability. It is not a prediction, and it is not a sportsbook parlay price.`;
 }
 
 export function narrateUncertainty(report: UncertaintyReport): string {

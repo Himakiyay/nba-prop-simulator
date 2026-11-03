@@ -106,6 +106,19 @@ function fullName(player: z.infer<typeof playerSchema>): string {
   return `${player.first_name ?? ""} ${player.last_name ?? ""}`.trim();
 }
 
+function choosePlayer(name: string, rows: z.infer<typeof playerSchema>[]) {
+  const target = normalizeName(name);
+  const tokens = target.split(" ").filter((token) => token.length >= 3);
+  const exact = rows.filter((player) => normalizeName(fullName(player)) === target);
+  if (exact.length === 1) return exact[0];
+  const partial = rows.filter((player) => {
+    const full = normalizeName(fullName(player));
+    return tokens.every((token) => full.includes(token));
+  });
+  if (partial.length === 1) return partial[0];
+  return null;
+}
+
 function mapStatus(status: string | undefined): AvailabilityStatus {
   const value = (status ?? "").toLowerCase();
   if (value.includes("out")) return "out";
@@ -128,21 +141,31 @@ export function createBallDontLieProviders(input: {
     const cacheKey = `bdl:player:${normalizeName(name)}`;
     const cached = providerCache.get<{ id: number; teamName: string | null }>(cacheKey);
     if (cached) return { ok: true, ...cached };
-    const result = await bdl(input.apiKey, "/nba/v1/players", { search: name, per_page: "10" });
-    if (!result.ok) return result;
-    const parsed = playersSchema.safeParse(result.body);
-    if (!parsed.success) return { ok: false, message: "BallDontLie player search did not match the expected shape." };
-    const target = normalizeName(name);
-    const exact = parsed.data.data.filter((player) => normalizeName(fullName(player)) === target);
-    const chosen = exact.length === 1 ? exact[0] : parsed.data.data.length === 1 ? parsed.data.data[0] : null;
+    const parts = name.trim().split(/\s+/);
+    const queries: Record<string, string>[] = [{ search: name, per_page: "10" }];
+    if (parts.length > 1) {
+      queries.push({ first_name: parts[0], last_name: parts[parts.length - 1], per_page: "10" });
+    } else {
+      queries.push({ last_name: parts[0], per_page: "10" });
+    }
+    let rows: z.infer<typeof playerSchema>[] = [];
+    for (const query of queries) {
+      const result = await bdl(input.apiKey, "/nba/v1/players", query);
+      if (!result.ok) return result;
+      const parsed = playersSchema.safeParse(result.body);
+      if (!parsed.success) return { ok: false, message: "BallDontLie player search did not match the expected shape." };
+      rows = parsed.data.data;
+      const chosen = choosePlayer(name, rows);
+      if (chosen) {
+        const resolved = { id: chosen.id, teamName: chosen.team?.full_name ?? null };
+        providerCache.set(cacheKey, resolved, input.cacheTtlMs);
+        return { ok: true, ...resolved };
+      }
+      if (result.ok && rows.length > 0 && query !== queries[0]) break;
+    }
+    const chosen = choosePlayer(name, rows);
     if (!chosen) {
-      return {
-        ok: false,
-        message:
-          exact.length > 1
-            ? `More than one BallDontLie player matched ${name}, so stats were not attached.`
-            : `No BallDontLie player matched ${name}.`,
-      };
+      return { ok: false, message: `No BallDontLie player matched ${name}.` };
     }
     const resolved = { id: chosen.id, teamName: chosen.team?.full_name ?? null };
     providerCache.set(cacheKey, resolved, input.cacheTtlMs);
