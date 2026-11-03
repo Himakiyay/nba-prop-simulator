@@ -103,6 +103,29 @@ const alternateSchema = z.object({
   bookmakerTitle: z.string().min(1),
 });
 
+const sameLinePriceSchema = z.object({
+  bookmakerKey: z.string(),
+  bookmakerTitle: z.string(),
+  line: z.number(),
+  oddsAmerican: z.number(),
+});
+
+const roleSchema = z.object({
+  summary: z.string().max(900),
+  placement: z.enum(["inside", "outside", "unknown"]),
+  teammatesOut: z.array(z.string().max(80)).max(6),
+});
+
+const latestPriceSchema = z.object({
+  fetchedAt: z.string(),
+  found: z.boolean(),
+  bookmakerTitle: z.string().nullable(),
+  line: z.number().nullable(),
+  oddsAmerican: z.number().nullable(),
+  bestBookmakerTitle: z.string().nullable(),
+  bestOddsAmerican: z.number().nullable(),
+});
+
 const researchCardSchema = z.object({
   offer: offerSchema,
   event: z.object({
@@ -131,6 +154,8 @@ const researchCardSchema = z.object({
   statsSource: sourceStampSchema.nullable(),
   availabilitySource: sourceStampSchema.nullable(),
   quotedLines: z.array(alternateSchema).max(40),
+  role: roleSchema.nullable().default(null),
+  bestSameLine: sameLinePriceSchema.nullable().default(null),
 });
 
 const selectionSchema = z.object({
@@ -160,6 +185,8 @@ const selectionSchema = z.object({
   fetchedAt: z.string().min(1),
   sourceUpdatedAt: z.string().nullable(),
   fictional: z.boolean(),
+  role: roleSchema.nullable().default(null),
+  bestSameLine: sameLinePriceSchema.nullable().default(null),
 });
 
 const slipSchema = z.object({
@@ -191,8 +218,10 @@ const snapshotSchema = z.object({
   bookmakerTitle: z.string(),
   oddsAmerican: z.number(),
   oddsDecimal: z.number(),
-  offerId: z.string(),
-  evidence: z.object({
+    offerId: z.string(),
+    bestSameLine: sameLinePriceSchema.nullable().default(null),
+    latestPrice: latestPriceSchema.nullable().default(null),
+    evidence: z.object({
     hitRate: hitRateSchema,
     minutes: z.object({
       average: z.number().nullable(),
@@ -211,6 +240,7 @@ const snapshotSchema = z.object({
     oddsFetchedAt: z.string(),
     oddsSourceUpdatedAt: z.string().nullable(),
     fictional: z.boolean(),
+    role: roleSchema.nullable().default(null),
   }),
   settlement: z.object({
     status: z.enum(["pending", "won", "lost", "pushed", "void", "ungraded"]),

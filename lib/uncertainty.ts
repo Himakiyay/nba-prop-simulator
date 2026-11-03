@@ -58,7 +58,7 @@ export function explainUncertainty(slip: Slip): UncertaintyReport {
     if (group.length < 2) continue;
     items.push({
       title: "Selections share a game.",
-      detail: `${names(group)} are in ${group[0].eventLabel}. They can move together. This desk does not quantify that correlation.`,
+      detail: `${names(group)} share ${group[0].eventLabel}. A faster or slower game can move both results, and the combined price stays unavailable.`,
     });
   }
   const samePlayer = new Map<string, SlipSelection[]>();

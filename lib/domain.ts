@@ -190,6 +190,29 @@ export interface BaselineScore {
   excludeReason: string | null;
 }
 
+export interface SameLinePrice {
+  bookmakerKey: string;
+  bookmakerTitle: string;
+  line: number;
+  oddsAmerican: number;
+}
+
+export interface LatestPrice {
+  fetchedAt: string;
+  found: boolean;
+  bookmakerTitle: string | null;
+  line: number | null;
+  oddsAmerican: number | null;
+  bestBookmakerTitle: string | null;
+  bestOddsAmerican: number | null;
+}
+
+export interface RoleRead {
+  summary: string;
+  placement: "inside" | "outside" | "unknown";
+  teammatesOut: string[];
+}
+
 export interface ResearchCard {
   offer: Offer;
   event: SportEvent;
@@ -209,6 +232,8 @@ export interface ResearchCard {
   statsSource: SourceStamp | null;
   availabilitySource: SourceStamp | null;
   quotedLines: AlternateLine[];
+  role?: RoleRead | null;
+  bestSameLine?: SameLinePrice | null;
 }
 
 export interface AlternateLine {
@@ -249,6 +274,8 @@ export interface SlipSelection {
   fetchedAt: string;
   sourceUpdatedAt: string | null;
   fictional: boolean;
+  role?: RoleRead | null;
+  bestSameLine?: SameLinePrice | null;
 }
 
 export interface Slip {
@@ -276,6 +303,7 @@ export interface EvidenceSummary {
   oddsFetchedAt: string;
   oddsSourceUpdatedAt: string | null;
   fictional: boolean;
+  role?: RoleRead | null;
 }
 
 export interface SelectionSnapshot {
@@ -299,6 +327,8 @@ export interface SelectionSnapshot {
   oddsDecimal: number;
   offerId: string;
   evidence: EvidenceSummary;
+  bestSameLine?: SameLinePrice | null;
+  latestPrice?: LatestPrice | null;
   settlement: {
     status: SettlementStatus;
     method: "unset" | "manual";

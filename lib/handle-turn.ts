@@ -26,7 +26,10 @@ import {
   narrativeAllowed,
   summaryMatchesRecords,
 } from "@/lib/narrate";
+import { readLimits } from "@/lib/providers/create";
+import { loadRoleExtras } from "@/lib/providers/espn";
 import type { ProviderSet } from "@/lib/providers/types";
+import { buildRoleRead } from "@/lib/role";
 import {
   buildResearchCard,
   capCandidates,
@@ -145,7 +148,8 @@ export async function handleTurn(input: TurnInput, providers: ProviderSet): Prom
   }
   if (board.unavailable) warnings.push(board.unavailable);
 
-  const offers = preferBookPerEvent(board.pack.offers, providers.preferredBookmaker);
+  const catalog = board.pack.offers;
+  const offers = preferBookPerEvent(catalog, providers.preferredBookmaker);
   const events = new Map(board.pack.events.map((event) => [event.id, event]));
 
   if (intent.type === "suggest" || intent.type === "apply_proposal") {
@@ -153,6 +157,7 @@ export async function handleTurn(input: TurnInput, providers: ProviderSet): Prom
       input,
       providers,
       offers,
+      catalog,
       events,
       warnings,
       intent.type === "apply_proposal",
@@ -160,19 +165,19 @@ export async function handleTurn(input: TurnInput, providers: ProviderSet): Prom
     );
   }
   if (intent.type === "analyze") {
-    return analyze(input, providers, offers, events, warnings, intent);
+    return analyze(input, providers, offers, catalog, events, warnings, intent);
   }
   if (intent.type === "compare") {
-    return compare(input, providers, offers, events, warnings, intent);
+    return compare(input, providers, offers, catalog, events, warnings, intent);
   }
   if (intent.type === "add_recent") {
-    return addRecent(input, providers, offers, events, warnings);
+    return addRecent(input, providers, offers, catalog, events, warnings);
   }
   if (intent.type === "lower_line") {
-    return lowerLine(input, providers, offers, events, warnings, intent.index);
+    return lowerLine(input, providers, offers, catalog, events, warnings, intent.index);
   }
   if (intent.type === "replace") {
-    return replaceIndexed(input, providers, offers, events, warnings, intent.index);
+    return replaceIndexed(input, providers, offers, catalog, events, warnings, intent.index);
   }
   return finish(input, {
     narrative: "I could not map that request to a research action.",
@@ -353,6 +358,7 @@ function toCard(
   events: Map<string, SportEvent>,
   hydrated: Hydrated,
   offers: Offer[],
+  catalog: Offer[],
 ): ResearchCard | null {
   const event = events.get(offer.eventId);
   if (!event) return null;
@@ -371,6 +377,7 @@ function toCard(
     availabilityState,
     statsSource: hydrated.statsSource,
     availabilitySource: hydrated.availabilitySource,
+    catalog,
   });
   return { ...card, quotedLines: alternatesFor(offer, offers) };
 }
@@ -380,6 +387,7 @@ async function cardsFor(
   providers: ProviderSet,
   offers: Offer[],
   events: Map<string, SportEvent>,
+  catalog: Offer[] = offers,
 ): Promise<{ cards: ResearchCard[]; warnings: string[] }> {
   const hydrated = await hydrate(
     input,
@@ -387,9 +395,41 @@ async function cardsFor(
     offers.map((offer) => ({ id: offer.playerId, name: offer.playerName })),
   );
   const cards = offers
-    .map((offer) => toCard(offer, events, hydrated, offers))
+    .map((offer) => toCard(offer, events, hydrated, offers, catalog))
     .filter((card): card is ResearchCard => card != null);
   return { cards, warnings: hydrated.warnings };
+}
+
+async function withLiveRole(mode: AppMode, cards: ResearchCard[]): Promise<ResearchCard[]> {
+  if (mode !== "live" || cards.length === 0) return cards;
+  const cacheTtlMs = readLimits().statsCacheSeconds * 1000;
+  return Promise.all(
+    cards.map(async (card) => {
+      try {
+        const extras = await loadRoleExtras({
+          playerName: card.offer.playerName,
+          teamName: card.teamName,
+          opponentName: card.opponentName,
+          marketKey: card.offer.marketKey,
+          cacheTtlMs,
+        });
+        return {
+          ...card,
+          role: buildRoleRead({
+            logs: card.logs,
+            marketKey: card.offer.marketKey,
+            line: card.offer.line,
+            opponentName: card.opponentName,
+            position: extras.position,
+            teammatesOut: extras.teammatesOut,
+            seasonOpponent: extras.seasonOpponent,
+          }),
+        };
+      } catch {
+        return card;
+      }
+    }),
+  );
 }
 
 function playerChoices(name: string): string {
@@ -527,6 +567,7 @@ async function analyze(
   input: TurnInput,
   providers: ProviderSet,
   offers: Offer[],
+  catalog: Offer[],
   events: Map<string, SportEvent>,
   warnings: string[],
   intent: ReturnType<typeof parseIntent>,
@@ -540,9 +581,10 @@ async function analyze(
       followUps: found.options,
     });
   }
-  const built = await cardsFor(input, providers, related(offers, found.offer), events);
-  const card = built.cards.find((item) => item.offer.id === found.offer!.id) ?? built.cards[0];
-  if (!card) return finish(input, { narrative: "The quote was missing its event, so I did not invent one.", warnings });
+  const built = await cardsFor(input, providers, related(offers, found.offer), events, catalog);
+  const matched = built.cards.find((item) => item.offer.id === found.offer!.id) ?? built.cards[0];
+  if (!matched) return finish(input, { narrative: "The quote was missing its event, so I did not invent one.", warnings });
+  const card = (await withLiveRole(input.mode, [matched]))[0] ?? matched;
   const told = await maybeNarrate(
     input,
     providers,
@@ -595,6 +637,7 @@ async function compare(
   input: TurnInput,
   providers: ProviderSet,
   offers: Offer[],
+  catalog: Offer[],
   events: Map<string, SportEvent>,
   warnings: string[],
   intent: ReturnType<typeof parseIntent>,
@@ -629,10 +672,12 @@ async function compare(
     providers,
     uniqueBy([...related(offers, left.offer), ...related(offers, right.offer)], (offer) => offer.id),
     events,
+    catalog,
   );
-  const cards = [left.offer.id, right.offer.id]
+  const matched = [left.offer.id, right.offer.id]
     .map((id) => built.cards.find((card) => card.offer.id === id))
     .filter((card): card is ResearchCard => Boolean(card));
+  const cards = await withLiveRole(input.mode, matched);
   if (cards.length < 2) {
     return finish(input, { narrative: "One of the comparison quotes was missing an event.", warnings });
   }
@@ -649,6 +694,7 @@ async function suggest(
   input: TurnInput,
   providers: ProviderSet,
   offers: Offer[],
+  catalog: Offer[],
   events: Map<string, SportEvent>,
   warnings: string[],
   applyProposal: boolean,
@@ -669,9 +715,9 @@ async function suggest(
     sourceOffers = chosen;
   }
   const limited = capCandidates(sourceOffers, input.limits.candidatePlayerCap);
-  const built = await cardsFor(input, providers, limited, events);
+  const built = await cardsFor(input, providers, limited, events, catalog);
   const suggestion = suggestFromCards(built.cards, applyProposal ? built.cards.length : count);
-  const chosen = applyProposal ? built.cards : suggestion.chosen;
+  const chosen = await withLiveRole(input.mode, applyProposal ? built.cards : suggestion.chosen);
   const visible =
     chosen.length > 0
       ? chosen
@@ -731,6 +777,7 @@ async function addRecent(
   input: TurnInput,
   providers: ProviderSet,
   offers: Offer[],
+  catalog: Offer[],
   events: Map<string, SportEvent>,
   warnings: string[],
 ): Promise<TurnResult> {
@@ -755,9 +802,10 @@ async function addRecent(
       warnings,
     });
   }
-  const built = await cardsFor(input, providers, related(offers, offer), events);
-  const card = built.cards.find((item) => item.offer.id === offer.id);
-  if (!card) return finish(input, { narrative: "The offer was missing its event.", warnings });
+  const built = await cardsFor(input, providers, related(offers, offer), events, catalog);
+  const matched = built.cards.find((item) => item.offer.id === offer.id);
+  if (!matched) return finish(input, { narrative: "The offer was missing its event.", warnings });
+  const card = (await withLiveRole(input.mode, [matched]))[0] ?? matched;
   const edit = addSelection(input.slip, card, alternatesFor(offer, offers), input.now);
   if (!edit.ok) {
     return finish(input, {
@@ -781,6 +829,7 @@ async function lowerLine(
   input: TurnInput,
   providers: ProviderSet,
   offers: Offer[],
+  catalog: Offer[],
   events: Map<string, SportEvent>,
   warnings: string[],
   index: number | null,
@@ -813,9 +862,10 @@ async function lowerLine(
       warnings,
     });
   }
-  const built = await cardsFor(input, providers, related(offers, fresh[0]), events);
-  const card = built.cards.find((item) => item.offer.id === fresh[0].id);
-  if (!card) return finish(input, { narrative: "The alternate line was missing its event.", warnings });
+  const built = await cardsFor(input, providers, related(offers, fresh[0]), events, catalog);
+  const matched = built.cards.find((item) => item.offer.id === fresh[0].id);
+  if (!matched) return finish(input, { narrative: "The alternate line was missing its event.", warnings });
+  const card = (await withLiveRole(input.mode, [matched]))[0] ?? matched;
   return applyReplacement(input, selection, card, offers, [...warnings, ...built.warnings], "lower_line");
 }
 
@@ -900,6 +950,7 @@ async function replaceIndexed(
   input: TurnInput,
   providers: ProviderSet,
   offers: Offer[],
+  catalog: Offer[],
   events: Map<string, SportEvent>,
   warnings: string[],
   index: number | null,
@@ -913,7 +964,7 @@ async function replaceIndexed(
     });
   }
   const overs = offers.filter((offer) => !offer.alternate && offer.side === "over");
-  const built = await cardsFor(input, providers, capCandidates(overs, input.limits.candidatePlayerCap), events);
+  const built = await cardsFor(input, providers, capCandidates(overs, input.limits.candidatePlayerCap), events, catalog);
   const remaining = {
     ...input.slip,
     selections: input.slip.selections.filter((item) => item.id !== selection.id),

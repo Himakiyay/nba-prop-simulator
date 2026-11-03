@@ -1,4 +1,5 @@
-import { normalizeName, type AvailabilityNote, type AvailabilityStatus, type GameLog } from "@/lib/domain";
+import { marketFamily, normalizeName, type AvailabilityNote, type AvailabilityStatus, type GameLog } from "@/lib/domain";
+import type { SeasonOpponentSplit } from "@/lib/role";
 import { providerCache } from "@/lib/providers/cache";
 import type { AvailabilityProvider, StatsProvider } from "@/lib/providers/types";
 import { parseMinutes } from "@/lib/stats";
@@ -133,6 +134,147 @@ async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
   return results;
+}
+
+const SPLIT_STAT: Record<string, string> = {
+  player_points: "avgPoints",
+  player_rebounds: "avgRebounds",
+  player_assists: "avgAssists",
+  player_blocks: "avgBlocks",
+  player_steals: "avgSteals",
+  player_turnovers: "avgTurnovers",
+};
+
+export async function loadRoleExtras(input: {
+  playerName: string;
+  teamName: string | null;
+  opponentName: string | null;
+  marketKey: string;
+  cacheTtlMs: number;
+}): Promise<{ position: string | null; teammatesOut: string[]; seasonOpponent: SeasonOpponentSplit | null }> {
+  const [position, teammatesOut, seasonOpponent] = await Promise.all([
+    playerPosition(input.playerName),
+    listedOut(input.teamName, input.playerName, input.cacheTtlMs),
+    opponentSplit(input.playerName, input.opponentName, input.marketKey),
+  ]);
+  return { position, teammatesOut, seasonOpponent };
+}
+
+async function playerPosition(name: string): Promise<string | null> {
+  const cacheKey = `espn:position:${normalizeName(name)}`;
+  const cached = providerCache.get<{ value: string | null }>(cacheKey);
+  if (cached) return cached.value;
+  const resolved = await searchAthleteId(name);
+  if (!resolved.ok) return null;
+  const athlete = await getJson(
+    `https://site.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/${encodeURIComponent(resolved.id)}`,
+  );
+  const position = record(record(record(athlete.ok ? athlete.body : null)?.athlete)?.position);
+  const label = typeof position?.displayName === "string" ? position.displayName : null;
+  providerCache.set(cacheKey, { value: label }, 24 * 60 * 60 * 1000);
+  return label;
+}
+
+async function searchAthleteId(name: string): Promise<{ ok: true; id: string } | { ok: false; message: string }> {
+  const cacheKey = `espn:athlete:${normalizeName(name)}`;
+  const cached = providerCache.get<string>(cacheKey);
+  if (cached) return { ok: true, id: cached };
+  const url = new URL(SEARCH_URL);
+  url.searchParams.set("query", name);
+  url.searchParams.set("limit", "5");
+  url.searchParams.set("type", "player");
+  const result = await getJson(url.toString());
+  if (!result.ok) return result;
+  const items = record(result.body)?.items;
+  const matches = (Array.isArray(items) ? items : [])
+    .map(record)
+    .filter((item): item is Record<string, unknown> => Boolean(item))
+    .filter((item) => item.league === "nba" && item.type === "player" && typeof item.id === "string");
+  const target = normalizeName(name);
+  const exact = matches.filter((item) => normalizeName(String(item.displayName ?? "")) === target);
+  const chosen = exact.length === 1 ? exact[0] : matches.length === 1 ? matches[0] : null;
+  if (!chosen) return { ok: false, message: `No ESPN player matched ${name}.` };
+  providerCache.set(cacheKey, chosen.id, 24 * 60 * 60 * 1000);
+  return { ok: true, id: String(chosen.id) };
+}
+
+async function listedOut(teamName: string | null, playerName: string, cacheTtlMs: number): Promise<string[]> {
+  if (!teamName) return [];
+  const board = await injuryBoard(cacheTtlMs);
+  const team = normalizeName(teamName);
+  const names = board
+    .filter((row) => {
+      const label = normalizeName(row.team);
+      return label === team || label.includes(team) || team.includes(label);
+    })
+    .filter((row) => row.status === "out" || row.status === "doubtful")
+    .filter((row) => normalizeName(row.player) !== normalizeName(playerName))
+    .map((row) => row.player);
+  return [...new Set(names)].slice(0, 4);
+}
+
+async function injuryBoard(cacheTtlMs: number): Promise<{ team: string; player: string; status: AvailabilityStatus }[]> {
+  const cacheKey = "espn:injury-board";
+  const cached = providerCache.get<{ team: string; player: string; status: AvailabilityStatus }[]>(cacheKey);
+  if (cached) return cached;
+  const result = await getJson(INJURY_URL);
+  if (!result.ok) return [];
+  const teams = record(result.body)?.injuries;
+  const rows: { team: string; player: string; status: AvailabilityStatus }[] = [];
+  for (const teamValue of Array.isArray(teams) ? teams : []) {
+    const team = record(teamValue);
+    const teamName = typeof team?.displayName === "string" ? team.displayName : "";
+    for (const rowValue of Array.isArray(team?.injuries) ? team.injuries : []) {
+      const row = record(rowValue);
+      const athlete = record(row?.athlete);
+      const player = typeof athlete?.displayName === "string" ? athlete.displayName : "";
+      const statusText = typeof row?.status === "string" ? row.status : "";
+      if (!player) continue;
+      rows.push({ team: teamName, player, status: mapInjuryStatus(statusText) });
+    }
+  }
+  providerCache.set(cacheKey, rows, cacheTtlMs);
+  return rows;
+}
+
+async function opponentSplit(
+  playerName: string,
+  opponentName: string | null,
+  marketKey: string,
+): Promise<SeasonOpponentSplit | null> {
+  if (!opponentName) return null;
+  const statName = SPLIT_STAT[marketFamily(marketKey)];
+  if (!statName) return null;
+  const resolved = await searchAthleteId(playerName);
+  if (!resolved.ok) return null;
+  const cacheKey = `espn:splits:${resolved.id}:${marketFamily(marketKey)}:${normalizeName(opponentName)}`;
+  const cached = providerCache.get<{ value: SeasonOpponentSplit | null }>(cacheKey);
+  if (cached) return cached.value;
+  const result = await getJson(
+    `https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/${encodeURIComponent(resolved.id)}/splits`,
+  );
+  if (!result.ok) return null;
+  const root = record(result.body);
+  const names = stringArray(root?.names);
+  const statIndex = names.indexOf(statName);
+  const gamesIndex = names.indexOf("gamesPlayed");
+  const categories = Array.isArray(root?.splitCategories) ? root.splitCategories : [];
+  const opponentCategory = categories.map(record).find((category) => category?.name === "byOpponent");
+  const splits = Array.isArray(opponentCategory?.splits) ? opponentCategory.splits : [];
+  const target = normalizeName(opponentName);
+  const split = splits.map(record).find((row) => {
+    const label = typeof row?.displayName === "string" ? normalizeName(row.displayName) : "";
+    return label === target || label.includes(target) || target.includes(label);
+  });
+  const stats = Array.isArray(split?.stats) ? split.stats.map((cell) => String(cell)) : [];
+  const games = gamesIndex >= 0 ? Number(stats[gamesIndex]) : Number.NaN;
+  const perGame = statIndex >= 0 ? Number(stats[statIndex]) : Number.NaN;
+  const parsed =
+    Number.isFinite(games) && games > 0 && Number.isFinite(perGame)
+      ? { games, perGame }
+      : null;
+  providerCache.set(cacheKey, { value: parsed }, 6 * 60 * 60 * 1000);
+  return parsed;
 }
 
 export function createEspnProviders(input: { cacheTtlMs: number }): {

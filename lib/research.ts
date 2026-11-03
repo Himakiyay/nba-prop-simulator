@@ -19,6 +19,8 @@ import {
   type SourceStamp,
   type SportEvent,
 } from "@/lib/domain";
+import { bestSameLinePrice } from "@/lib/prices";
+import { buildRoleRead, type SeasonOpponentSplit } from "@/lib/role";
 import { computeHitRate, computeMinutes } from "@/lib/stats";
 
 const AVAILABILITY_FACTOR: Record<AvailabilityStatus, number> = {
@@ -142,6 +144,10 @@ export function buildResearchCard(input: {
   statsSource: SourceStamp | null;
   availabilitySource: SourceStamp | null;
   teamName: string | null;
+  catalog?: Offer[];
+  position?: string | null;
+  teammatesOut?: string[];
+  seasonOpponent?: SeasonOpponentSplit | null;
 }): ResearchCard {
   const logs = [...input.logs].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10);
   const teamName = input.offer.teamName ?? input.teamName;
@@ -250,6 +256,16 @@ export function buildResearchCard(input: {
     statsSource: input.statsSource,
     availabilitySource: input.availabilitySource,
     quotedLines: [],
+    role: buildRoleRead({
+      logs,
+      marketKey: input.offer.marketKey,
+      line: input.offer.line,
+      opponentName: resolveOpponent(teamName, input.event),
+      position: input.position,
+      teammatesOut: input.teammatesOut,
+      seasonOpponent: input.seasonOpponent,
+    }),
+    bestSameLine: input.catalog ? bestSameLinePrice(input.catalog, input.offer) : null,
   };
 }
 
@@ -322,7 +338,7 @@ export function suggestFromCards(cards: ResearchCard[], count: number): {
   for (const group of byEvent.values()) {
     if (group.length < 2) continue;
     limitations.push(
-      `Same-game dependency: ${group.map((card) => card.offer.playerName).join(" and ")} are in ${eventLabel(group[0].event)}. Correlation is not quantified.`,
+      `${group.map((card) => card.offer.playerName).join(" and ")} share ${eventLabel(group[0].event)}. A faster or slower game can move both results. The combined price stays unavailable.`,
     );
   }
   limitations.push(

@@ -35,6 +35,9 @@ export function ResearchCardView({
         <p className="mt-1 text-xs text-muted-foreground">
           {recent.length > 0 ? `Game log ${recent.join(" · ")}` : "Game log unavailable"}
         </p>
+        {card.role?.summary ? (
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{card.role.summary}</p>
+        ) : null}
       </div>
       {onAdd ? (
         <Button

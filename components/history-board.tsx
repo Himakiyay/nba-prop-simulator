@@ -2,6 +2,10 @@
 
 import Link from "next/link";
 import { useState, useSyncExternalStore } from "react";
+import { calibrateSnapshots } from "@/lib/calibration";
+import { impliedProbability, formatPercent } from "@/lib/payout";
+import { bestPriceSentence, priceMoveSentence } from "@/lib/prices";
+import { refreshStoredPrices } from "@/lib/refresh-prices";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,11 +40,47 @@ function readSaved(raw: string): { state: PersistedState | null; error: string |
   }
 }
 
+function CalibrationChart({
+  calibration,
+}: {
+  calibration: ReturnType<typeof calibrateSnapshots>;
+}) {
+  return (
+    <section className="rounded-xl border border-primary/30 bg-black/40 p-4">
+      <h2 className="font-medium">Your calibration</h2>
+      <p className="mt-1 text-sm text-muted-foreground">{calibration.summary}</p>
+      {calibration.bands.length > 0 ? (
+        <ul className="mt-4 space-y-3">
+          {calibration.bands.map((band) => (
+            <li key={band.label}>
+              <div className="flex items-baseline justify-between gap-3 text-xs">
+                <span>{band.label}</span>
+                <span className="text-muted-foreground">
+                  {band.hits} of {band.count} hit · prices implied {formatPercent(band.averageImplied)}
+                </span>
+              </div>
+              <div className="mt-1 h-2 rounded-full bg-white/10">
+                <div
+                  className="h-2 rounded-full bg-primary"
+                  style={{ width: `${Math.max(4, Math.round(band.hitRate * 100))}%` }}
+                />
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
 export function HistoryBoard() {
   const raw = useSyncExternalStore(subscribeBrowserStore, readBrowserSnapshot, () => "");
   const saved = readSaved(raw);
   const state = saved.state ?? EMPTY_PERSISTED_STATE;
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>("all");
+  const [checking, setChecking] = useState(false);
+  const [checkError, setCheckError] = useState<string | null>(null);
+  const calibration = calibrateSnapshots(state.snapshots);
   const rows = state.snapshots.filter((snapshot) =>
     filter === "all" ? true : snapshot.settlement.status === filter,
   );
@@ -67,6 +107,31 @@ export function HistoryBoard() {
       {saved.error ? (
         <p className="rounded-lg bg-rose-950/50 p-3 text-sm text-rose-100">{saved.error}</p>
       ) : null}
+      <CalibrationChart calibration={calibration} />
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          size="sm"
+          disabled={checking || state.snapshots.length === 0}
+          onClick={() => {
+            setChecking(true);
+            setCheckError(null);
+            void refreshStoredPrices(
+              state,
+              state.snapshots.map((snapshot) => snapshot.eventId),
+            ).then((result) => {
+              setChecking(false);
+              if (result.error) {
+                setCheckError(result.error);
+                return;
+              }
+              browserStore().write(result.state);
+            });
+          }}
+        >
+          {checking ? "Checking prices…" : "Check current prices"}
+        </Button>
+        {checkError ? <p className="text-sm text-rose-100">{checkError}</p> : null}
+      </div>
       <section className="rounded-xl border border-border p-4">
         <h2 className="font-medium">Manual paper record</h2>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -109,10 +174,29 @@ export function HistoryBoard() {
                     {formatAmerican(snapshot.oddsAmerican)} · {snapshot.bookmakerTitle}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Captured {formatWhen(snapshot.createdAt)} · {snapshot.modelVersion}
+                    Captured {formatWhen(snapshot.createdAt)} ·{" "}
+                    {(() => {
+                      const implied = impliedProbability(snapshot.oddsAmerican);
+                      return implied == null ? "" : `${formatPercent(implied)} price-implied · `;
+                    })()}
+                    {snapshot.modelVersion}
                     {snapshot.replacesSnapshotId ? " · edit of an earlier snapshot" : ""}
                     {snapshot.evidence.fictional ? " · fictional demo quote" : " · live quote"}
                   </p>
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                    {bestPriceSentence(snapshot.bookmakerTitle, snapshot.oddsAmerican, snapshot.bestSameLine)}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    {priceMoveSentence(
+                      snapshot,
+                      snapshot.latestPrice,
+                      snapshot.commenceTime,
+                      new Date().toISOString(),
+                    )}
+                  </p>
+                  {snapshot.evidence.role?.summary ? (
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">{snapshot.evidence.role.summary}</p>
+                  ) : null}
                   <p className="mt-2 text-sm">
                     Historical rate:{" "}
                     {snapshot.evidence.hitRate.historicalRate == null

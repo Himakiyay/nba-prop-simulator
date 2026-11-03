@@ -4,11 +4,13 @@ import {
   MAX_STORED_MESSAGES,
   type ChatMessage,
   type OddsFormat,
+  type Offer,
   type PersistedState,
   type SelectionSnapshot,
   type SettlementStatus,
   type Slip,
 } from "@/lib/domain";
+import { matchLatestPrice } from "@/lib/prices";
 import { persistedSchema } from "@/lib/schema";
 import { createSlip } from "@/lib/slip";
 import type { TurnResult } from "@/lib/turn";
@@ -103,6 +105,23 @@ export function applyTurn(
       ...turn.snapshots.filter((snapshot) => !known.has(snapshot.id)),
     ],
     messages: [...next.messages, user, assistant].slice(-MAX_STORED_MESSAGES),
+  };
+}
+
+export function applyRetrievedPrices(
+  state: PersistedState,
+  offers: Offer[],
+  fetchedAt: string,
+  eventIds: string[],
+): PersistedState {
+  const wanted = new Set(eventIds);
+  return {
+    ...state,
+    snapshots: state.snapshots.map((snapshot) =>
+      wanted.has(snapshot.eventId)
+        ? { ...snapshot, latestPrice: matchLatestPrice(snapshot, offers, fetchedAt) }
+        : snapshot,
+    ),
   };
 }
 

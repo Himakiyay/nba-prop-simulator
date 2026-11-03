@@ -138,28 +138,61 @@ export function quoteSlip(slip: Pick<Slip, "stake" | "selections">): SlipQuote {
 }
 
 export function dependencyNotes(
-  selections: Pick<SlipSelection, "id" | "playerId" | "playerName" | "eventId" | "eventLabel" | "marketLabel">[],
+  selections: Pick<
+    SlipSelection,
+    "playerId" | "playerName" | "eventId" | "eventLabel" | "marketKey" | "marketLabel" | "teamName"
+  >[],
 ): string[] {
   const notes: string[] = [];
   const byEvent = new Map<string, typeof selections>();
-  const byPlayer = new Map<string, typeof selections>();
   for (const selection of selections) {
     byEvent.set(selection.eventId, [...(byEvent.get(selection.eventId) ?? []), selection]);
-    byPlayer.set(selection.playerId, [...(byPlayer.get(selection.playerId) ?? []), selection]);
   }
   for (const group of byEvent.values()) {
     if (group.length < 2) continue;
-    notes.push(
-      `${group.map((item) => item.playerName).join(" and ")} are in the same game (${group[0].eventLabel}). That shared dependency is flagged only. This desk does not quantify correlation.`,
-    );
+    notes.push(sharedGameSentence(group));
+  }
+  const byPlayer = new Map<string, typeof selections>();
+  for (const selection of selections) {
+    byPlayer.set(selection.playerId, [...(byPlayer.get(selection.playerId) ?? []), selection]);
   }
   for (const group of byPlayer.values()) {
     if (group.length < 2) continue;
+    const events = new Set(group.map((item) => item.eventId));
+    if (events.size < 2) continue;
     notes.push(
-      `${group[0].playerName} appears in more than one market (${group.map((item) => item.marketLabel).join(", ")}). Those legs depend on the same player. Correlation is not estimated.`,
+      `${group[0].playerName}'s ${group.map((item) => item.marketLabel.toLowerCase()).join(" and ")} are in different games. Each price still belongs to that game's minutes.`,
     );
   }
   return notes;
+}
+
+function sharedGameSentence(
+  group: Pick<SlipSelection, "playerId" | "playerName" | "eventLabel" | "marketKey" | "marketLabel" | "teamName">[],
+): string {
+  const names = joinNames(group.map((item) => item.playerName));
+  const event = group[0].eventLabel;
+  const samePlayer = group.every((item) => item.playerId === group[0].playerId);
+  if (samePlayer) {
+    const markets = [...new Set(group.map((item) => item.marketLabel.toLowerCase()))];
+    return `${group[0].playerName}'s ${markets.join(" and ")} share the same minutes and the script of ${event}. The combined price stays unavailable.`;
+  }
+  const teams = [...new Set(group.map((item) => item.teamName).filter((team): team is string => Boolean(team)))];
+  if (teams.length === 1) {
+    return `${names} are teammates in ${event}, so they share that game's pace and score. The combined price stays unavailable.`;
+  }
+  const families = new Set(group.map((item) => item.marketKey));
+  if (families.has("player_points") && families.has("player_assists")) {
+    return `${names} share ${event}. Assists and points can ride the same possessions. The combined price stays unavailable.`;
+  }
+  return `${names} share ${event}. A faster or slower game can move both results. The combined price stays unavailable.`;
+}
+
+function joinNames(names: string[]): string {
+  const unique = [...new Set(names)];
+  if (unique.length <= 1) return unique[0] ?? "These picks";
+  if (unique.length === 2) return `${unique[0]} and ${unique[1]}`;
+  return `${unique.slice(0, -1).join(", ")}, and ${unique.at(-1)}`;
 }
 
 export function describeLeg(leg: LegQuote): string {

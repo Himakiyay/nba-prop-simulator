@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +10,9 @@ import {
   type OddsFormat,
   type PersistedState,
 } from "@/lib/domain";
+import { bestPriceSentence, priceMoveSentence } from "@/lib/prices";
 import { dependencyNotes, formatPercent, quoteSlip, type SlipQuote } from "@/lib/payout";
+import { refreshStoredPrices } from "@/lib/refresh-prices";
 import { recentLogLabels } from "@/lib/stats";
 import { activeSlip, addSlip, removeSlip, setOddsFormat, withActiveSlip } from "@/lib/state";
 import { removeSelection, selectStoredAlternate, setStake } from "@/lib/slip";
@@ -27,6 +30,21 @@ export function SlipPanel({
   const quote = quoteSlip(slip);
   const notes = dependencyNotes(slip.selections);
   const now = () => new Date().toISOString();
+  const [checking, setChecking] = useState(false);
+
+  async function checkPrices() {
+    setChecking(true);
+    const result = await refreshStoredPrices(
+      state,
+      slip.selections.map((selection) => selection.eventId),
+    );
+    setChecking(false);
+    if (result.error) {
+      onError(result.error);
+      return;
+    }
+    onChange(result.state);
+  }
 
   function commitStake(value: string) {
     const stake = Number(value);
@@ -43,7 +61,12 @@ export function SlipPanel({
       <div>
         <div className="flex items-center justify-between gap-2">
           <h2 className="font-heading text-2xl">Your slate</h2>
-          <Badge variant="outline">No bet placed</Badge>
+          <div className="flex items-center gap-2">
+            <Button size="xs" variant="outline" disabled={checking || slip.selections.length === 0} onClick={() => void checkPrices()}>
+              {checking ? "Checking…" : "Check prices"}
+            </Button>
+            <Badge variant="outline">No bet placed</Badge>
+          </div>
         </div>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
           Saved in this browser only. Clearing site data or switching browsers drops the slips.
@@ -112,6 +135,10 @@ export function SlipPanel({
                     · {selection.bookmakerTitle}
                   </p>
                   <RecentLine selection={selection} />
+                  {selection.role?.summary ? (
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">{selection.role.summary}</p>
+                  ) : null}
+                  <PriceLines selection={selection} snapshot={state.snapshots.find((item) => item.id === selection.snapshotId)} />
                   {selection.fictional ? (
                     <p className="text-xs text-amber-200">Fictional quote</p>
                   ) : null}
@@ -208,6 +235,28 @@ export function SlipPanel({
           ))}
         </ul>
       </section>
+    </div>
+  );
+}
+
+function PriceLines({
+  selection,
+  snapshot,
+}: {
+  selection: { bookmakerTitle: string; oddsAmerican: number; line: number; commenceTime: string; bestSameLine?: { bookmakerTitle: string; oddsAmerican: number; bookmakerKey: string; line: number } | null };
+  snapshot?: { latestPrice?: Parameters<typeof priceMoveSentence>[1] };
+}) {
+  const best = bestPriceSentence(selection.bookmakerTitle, selection.oddsAmerican, selection.bestSameLine);
+  const move = priceMoveSentence(
+    selection,
+    snapshot?.latestPrice,
+    selection.commenceTime,
+    new Date().toISOString(),
+  );
+  return (
+    <div className="mt-1 space-y-1 text-xs text-muted-foreground">
+      {best ? <p>{best}</p> : null}
+      <p>{move}</p>
     </div>
   );
 }

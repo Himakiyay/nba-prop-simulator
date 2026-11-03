@@ -45,6 +45,7 @@ export function evidenceFromCard(card: ResearchCard): EvidenceSummary {
     oddsFetchedAt: card.offer.fetchedAt,
     oddsSourceUpdatedAt: card.offer.sourceUpdatedAt,
     fictional: card.offer.fictional,
+    role: card.role ?? null,
   };
 }
 
@@ -106,6 +107,8 @@ function selectionFromCard(
     fetchedAt: card.offer.fetchedAt,
     sourceUpdatedAt: card.offer.sourceUpdatedAt,
     fictional: card.offer.fictional,
+    role: card.role ?? null,
+    bestSameLine: card.bestSameLine ?? null,
   };
 }
 
@@ -137,6 +140,8 @@ export function snapshotFromSelection(
     oddsDecimal: selection.oddsDecimal,
     offerId: selection.offerId,
     evidence,
+    bestSameLine: selection.bestSameLine ?? null,
+    latestPrice: null,
     settlement: {
       status: "pending",
       method: "unset",

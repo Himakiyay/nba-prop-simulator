@@ -62,17 +62,33 @@ export function GameBoard({
     let availability: AvailabilityNote | null = null;
     let availabilityState: "unavailable" | "not_listed" | "present" = "unavailable";
     let teamName = offer.teamName;
+    let position: string | null = null;
+    let teammatesOut: string[] = [];
+    let seasonOpponent: { games: number; perGame: number } | null = null;
     try {
-      const response = await fetch(`/api/form?name=${encodeURIComponent(offer.playerName)}`);
+      const params = new URLSearchParams({ name: offer.playerName, market: offer.marketKey });
+      if (event) {
+        params.set("home", event.homeTeamName);
+        params.set("away", event.awayTeamName);
+      }
+      const response = await fetch(`/api/form?${params.toString()}`);
       if (response.ok) {
         const body = (await response.json()) as {
           logs?: GameLog[];
           teamName?: string | null;
           availability?: AvailabilityNote | null;
           availabilityKnown?: boolean;
+          roleExtras?: {
+            position?: string | null;
+            teammatesOut?: string[];
+            seasonOpponent?: { games: number; perGame: number } | null;
+          } | null;
         };
         logs = body.logs ?? [];
         teamName = body.teamName ?? teamName;
+        position = body.roleExtras?.position ?? null;
+        teammatesOut = body.roleExtras?.teammatesOut ?? [];
+        seasonOpponent = body.roleExtras?.seasonOpponent ?? null;
         if (body.availabilityKnown) {
           availability = body.availability ?? null;
           availabilityState = availability ? "present" : "not_listed";
@@ -94,6 +110,10 @@ export function GameBoard({
         ? { source: "espn", fetchedAt: availability.fetchedAt, sourceUpdatedAt: availability.sourceUpdatedAt, stale: false, fictional: false }
         : null,
       teamName,
+      catalog: offers,
+      position,
+      teammatesOut,
+      seasonOpponent,
     });
     const slip = activeSlip(state);
     const edit = addSelection(slip, card, alternatesFor(offer, priced), new Date().toISOString());
